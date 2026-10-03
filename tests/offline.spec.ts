@@ -1,8 +1,19 @@
 import { createServer, type Server } from "node:http";
-import { readFileSync, statSync } from "node:fs";
-import { extname, join } from "node:path";
+import {
+  cpSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { extname, join, resolve } from "node:path";
 import { test, expect, type Page } from "@playwright/test";
 import { imageSize, ready } from "./helpers";
+import { writeServiceWorker } from "../scripts/sw-build.mjs";
 
 // Every spec here runs against the production build, where the service
 // worker is registered.
@@ -275,4 +286,209 @@ test("a shared photo that arrives late does not replace a sample chosen meanwhil
   await expect(page.locator(".image-caption > span").first()).toHaveText(
     "Forest floor",
   );
+});
+
+/**
+ * A copy of the built site standing in for one deploy. The entry script and
+ * the lazily loaded Export panel are renamed for `build`, as a new deploy's
+ * content hashes would rename them, and the panel records `build` on the page
+ * when it loads. The worker is regenerated the way the real build does it.
+ */
+function deploy(build: string) {
+  const dir = mkdtempSync(join(tmpdir(), `deploy-${build}-`));
+  cpSync(resolve("dist"), dir, { recursive: true });
+  const assets = join(dir, "assets");
+  const renames = [/^main-.*\.js$/, /^ExportPanel-.*\.js$/].map((pattern) => {
+    const old = readdirSync(assets).find((name) => pattern.test(name))!;
+    const next = old.replace(/-[^.]+\.js$/, `-${build}.js`);
+    renameSync(join(assets, old), join(assets, next));
+    return [old, next];
+  });
+  const textFiles = (folder: string): string[] =>
+    readdirSync(folder, { withFileTypes: true }).flatMap((entry) =>
+      entry.isDirectory()
+        ? textFiles(join(folder, entry.name))
+        : /\.(js|css|html|json)$/.test(entry.name)
+          ? [join(folder, entry.name)]
+          : [],
+    );
+  for (const file of textFiles(dir)) {
+    let text = readFileSync(file, "utf8");
+    for (const [old, next] of renames) text = text.replaceAll(old, next);
+    writeFileSync(file, text);
+  }
+  const panel = join(assets, renames[1][1]);
+  writeFileSync(
+    panel,
+    `${readFileSync(panel, "utf8")}\ndocument.documentElement.dataset.build=${JSON.stringify(build)};\n`,
+  );
+  writeServiceWorker(dir, resolve("public/sw.js"));
+  return dir;
+}
+
+test.describe("across two different deploys", () => {
+  const types: Record<string, string> = {
+    ".html": "text/html",
+    ".js": "text/javascript",
+    ".css": "text/css",
+    ".webp": "image/webp",
+    ".png": "image/png",
+    ".woff2": "font/woff2",
+    ".webmanifest": "application/manifest+json",
+  };
+  const dirs: Record<string, string> = {};
+  let server: Server;
+  let origin = "";
+  let current = "one";
+  // Paths the site stops serving, to model a deploy that is only half there.
+  let missing = new Set<string>();
+
+  test.beforeAll(async () => {
+    dirs.one = deploy("one");
+    dirs.two = deploy("two");
+    server = createServer((req, res) => {
+      const path = new URL(req.url!, "http://x").pathname;
+      const file = join(
+        dirs[current],
+        path === "/" ? "index.html" : path.replaceAll("..", ""),
+      );
+      if (
+        missing.has(path) ||
+        !statSync(file, { throwIfNoEntry: false })?.isFile()
+      ) {
+        res.writeHead(404).end();
+        return;
+      }
+      res.writeHead(200, {
+        "Content-Type": types[extname(file)] ?? "application/octet-stream",
+        // A host that lets browsers keep pages, to catch a worker that trusts
+        // the HTTP cache. Only the worker script is always revalidated.
+        "Cache-Control": path === "/sw.js" ? "no-cache" : "max-age=3600",
+      });
+      res.end(readFileSync(file));
+    });
+    await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+    const address = server.address();
+    origin = `http://127.0.0.1:${typeof address === "object" ? address!.port : 0}`;
+  });
+  test.afterAll(async () => {
+    await new Promise((done) => server.close(done));
+    for (const dir of Object.values(dirs))
+      rmSync(dir, { recursive: true, force: true });
+  });
+  test.beforeEach(() => {
+    current = "one";
+    missing = new Set();
+  });
+
+  const entry = (page: Page) =>
+    page.evaluate(
+      () =>
+        document.querySelector<HTMLScriptElement>('script[type="module"]')!.src,
+    );
+  const open = async (page: Page) => {
+    await page.goto(origin);
+    await ready(page);
+    await worker(page);
+  };
+  // Resolves once the worker for a deploy has saved `file` and the older
+  // revisions are gone.
+  const saved = (page: Page, file: string) =>
+    expect
+      .poll(
+        () =>
+          page.evaluate(
+            async (url) =>
+              (await caches.keys()).filter((n) =>
+                n.startsWith("palette-shell-"),
+              ).length === 1 && !!(await caches.match(url)),
+            file,
+          ),
+        { timeout: 20000 },
+      )
+      .toBe(true);
+  const exportPanel = async (page: Page) => {
+    await page.getByRole("tab", { name: "Export palette" }).click();
+    await expect(page.getByRole("tabpanel")).toBeVisible();
+  };
+
+  test("an ordinary visit shows the new deploy, and a panel it changed works offline", async ({
+    page,
+    context,
+  }) => {
+    await open(page);
+    expect(await entry(page)).toContain("/main-one.js");
+    current = "two";
+    // A fresh visit, not a reload: the old page is still fresh for an hour.
+    await page.goto("about:blank");
+    await page.goto(origin);
+    await ready(page);
+    expect(await entry(page)).toContain("/main-two.js");
+    await saved(page, "/assets/ExportPanel-two.js");
+    await context.setOffline(true);
+    await page.goto(origin);
+    await expect(page.locator("#workspace")).toHaveAttribute(
+      "aria-busy",
+      "false",
+      { timeout: 20000 },
+    );
+    expect(await entry(page)).toContain("/main-two.js");
+    await exportPanel(page);
+    await expect(page.locator("html")).toHaveAttribute("data-build", "two");
+  });
+
+  test("a deploy that is only partly there never replaces the saved version", async ({
+    page,
+    context,
+  }) => {
+    await open(page);
+    current = "two";
+    missing = new Set(["/assets/ExportPanel-two.js"]);
+    await page.goto("about:blank");
+    await page.goto(origin);
+    await ready(page);
+    expect(await entry(page)).toContain("/main-two.js");
+    // Give the new worker time to try and fail.
+    await page.waitForTimeout(3000);
+    await context.setOffline(true);
+    await page.goto(origin);
+    await expect(page.locator("#workspace")).toHaveAttribute(
+      "aria-busy",
+      "false",
+      { timeout: 20000 },
+    );
+    expect(await entry(page)).toContain("/main-one.js");
+    await exportPanel(page);
+    await expect(page.locator("html")).toHaveAttribute("data-build", "one");
+  });
+
+  test("the explainer opens offline without an earlier visit", async ({
+    page,
+    context,
+  }) => {
+    await open(page);
+    await context.setOffline(true);
+    await page.goto(`${origin}/how.html`);
+    await expect(page).toHaveTitle(/How median cut works/);
+    await expect(
+      page.getByRole("heading", { name: "How median cut works" }),
+    ).toBeVisible();
+  });
+
+  test("a path that was never saved gets a plain offline page, not the app", async ({
+    page,
+    context,
+  }) => {
+    await open(page);
+    await context.setOffline(true);
+    await page.goto(`${origin}/never-saved`);
+    await expect(page).toHaveTitle("Offline");
+    await expect(
+      page.getByRole("heading", { name: "You are offline" }),
+    ).toBeVisible();
+    await expect(page.locator("#workspace")).toHaveCount(0);
+    await expect(
+      page.getByRole("link", { name: /palette tool/ }),
+    ).toBeVisible();
+  });
 });
