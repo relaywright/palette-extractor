@@ -154,3 +154,26 @@ for (const width of [390, 768, 1440]) {
     expect(await axeViolations(page)).toEqual([]);
   });
 }
+
+test("the recolored photo is simulated, and the original beneath it is not filtered twice", async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/");
+  await ready(page);
+  await settled(page);
+  await page.locator(".swatch-select").nth(1).focus();
+  await page.keyboard.press("Shift+ArrowUp");
+  const layer = page.locator(".recolor-layer");
+  await expect(layer).toHaveAttribute("data-active", "true");
+  await openContrast(page);
+  await page.getByRole("radio", { name: "Deuteranopia" }).check();
+  await expect(layer).toHaveCSS("filter", 'url("#cvd-deuteranopia")');
+  await expect(photo(page)).toHaveCSS("filter", "none");
+
+  // Resetting the edit brings the original photo back as the filtered layer.
+  await page.getByRole("tab", { name: "In context" }).click();
+  await page.getByRole("button", { name: "Reset to extracted" }).click();
+  await expect(layer).toHaveAttribute("data-active", "false");
+  await expect(photo(page)).toHaveCSS("filter", 'url("#cvd-deuteranopia")');
+});

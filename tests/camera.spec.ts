@@ -345,3 +345,18 @@ test("repeated Freeze presses encode one photo", async ({ page }) => {
     ),
   ).toBe(1);
 });
+
+test("the live video is color-vision simulated once, under the photo", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await ready(page);
+  await startCamera(page);
+  await page.getByRole("tab", { name: "Contrast check" }).click();
+  await page.getByRole("radio", { name: "Deuteranopia" }).check();
+  await expect(page.locator(".camera-video")).toHaveCSS(
+    "filter",
+    'url("#cvd-deuteranopia")',
+  );
+  await expect(page.locator(".source-frame > img")).toHaveCSS("filter", "none");
+});
