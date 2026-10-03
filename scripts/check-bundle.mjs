@@ -27,8 +27,95 @@ const ATTRIBUTE =
 function attr(tag, name) {
   const body = tag.replace(/^<[^\s>\/]+/, "");
   for (const m of body.matchAll(ATTRIBUTE))
-    if (m[1].toLowerCase() === name) return m[2] ?? m[3] ?? m[4] ?? "";
+    if (m[1].toLowerCase() === name)
+      return decodeReferences(m[2] ?? m[3] ?? m[4] ?? "");
   return undefined;
+}
+
+// A browser reads character references in attribute values before using
+// them, so rel="moduleprelo&#97;d" is a preload. The named ones are those
+// that can spell a path, a MIME type or a rel token. Only the legacy ones (amp,
+// lt, gt, quot, nbsp) may omit the semicolon, and not when "=" follows.
+const NAMED_REFERENCES = {
+  amp: "&",
+  AMP: "&",
+  lt: "<",
+  LT: "<",
+  gt: ">",
+  GT: ">",
+  quot: '"',
+  QUOT: '"',
+  nbsp: "\u00a0",
+  apos: "'",
+  sol: "/",
+  bsol: "\\",
+  colon: ":",
+  period: ".",
+  comma: ",",
+  semi: ";",
+  equals: "=",
+  num: "#",
+  quest: "?",
+  percnt: "%",
+  plus: "+",
+  lowbar: "_",
+  Tab: "\t",
+  NewLine: "\n",
+};
+const BARE_REFERENCES = new Set([
+  "amp",
+  "AMP",
+  "lt",
+  "LT",
+  "gt",
+  "GT",
+  "quot",
+  "QUOT",
+  "nbsp",
+]);
+function decodeReferences(value) {
+  return value.replace(
+    /&(?:#(\d+)|#[xX]([0-9a-fA-F]+)|([A-Za-z][A-Za-z0-9]*))(;?)/g,
+    (match, decimal, hex, name, semicolon, offset) => {
+      if (name !== undefined) {
+        const known = Object.hasOwn(NAMED_REFERENCES, name);
+        if (!known || (!semicolon && !BARE_REFERENCES.has(name))) return match;
+        if (!semicolon && value[offset + match.length] === "=") return match;
+        return NAMED_REFERENCES[name];
+      }
+      const code = decimal !== undefined ? Number(decimal) : parseInt(hex, 16);
+      const valid =
+        code > 0 && code <= 0x10ffff && !(code >= 0xd800 && code <= 0xdfff);
+      return valid ? String.fromCodePoint(code) : "\ufffd";
+    },
+  );
+}
+
+// Script types a browser runs as classic JavaScript (the HTML standard's
+// JavaScript MIME types). A script with no type is classic too.
+const JAVASCRIPT_TYPES = new Set([
+  "application/ecmascript",
+  "application/javascript",
+  "application/x-ecmascript",
+  "application/x-javascript",
+  "text/ecmascript",
+  "text/javascript",
+  "text/javascript1.0",
+  "text/javascript1.1",
+  "text/javascript1.2",
+  "text/javascript1.3",
+  "text/javascript1.4",
+  "text/javascript1.5",
+  "text/jscript",
+  "text/livescript",
+  "text/x-ecmascript",
+  "text/x-javascript",
+]);
+// Browsers that run modules skip nomodule scripts, so they cost nothing.
+function isClassicScript(tag) {
+  if (attr(tag, "nomodule") !== undefined) return false;
+  const type = (attr(tag, "type") ?? "").split(";")[0].trim().toLowerCase();
+  return type === "" || JAVASCRIPT_TYPES.has(type);
 }
 
 /** One spelling per manifest file: "./assets/a.js" and "assets/a.js" are the same. */
@@ -126,14 +213,22 @@ export function checkBundle(
     )
     .map((tag) => attr(tag, "href"))
     .filter(Boolean);
-  const htmlFiles = [];
-  for (const ref of [...scripts, ...preloads]) {
+  const fileOrProblem = (ref, into) => {
     const file = fileOfReference(ref);
     if (file === null)
       problems.push(
         `${ref} is loaded by index.html but cannot be mapped to a file in this build`,
       );
-    else htmlFiles.push(file);
+    else into.push(file);
+  };
+  const htmlFiles = [];
+  for (const ref of [...scripts, ...preloads]) fileOrProblem(ref, htmlFiles);
+  // A classic script cannot import anything, so it needs no manifest entry;
+  // its own size is all there is to count.
+  const classicFiles = [];
+  for (const tag of tagsOf(html, "script").filter(isClassicScript)) {
+    const src = attr(tag, "src");
+    if (src) fileOrProblem(src, classicFiles);
   }
 
   // A module the manifest does not list could import anything unmeasured.
@@ -147,6 +242,7 @@ export function checkBundle(
     htmlFiles.map((f) => keyOfFile.get(f)).filter(Boolean),
   ))
     firstLoad.add(file);
+  for (const file of classicFiles) firstLoad.add(file);
 
   const assetsDir = join(distDir, "assets");
   const workers = existsSync(assetsDir)
