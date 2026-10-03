@@ -66,6 +66,14 @@
   outline: 2px solid #f1eee8;
   outline-offset: 2px;
 }
+/* Phones have a tab bar fixed to the bottom: the badge rides above it. */
+@media (max-width: 580px) {
+  .cvd-indicator {
+    bottom: calc(
+      var(--tab-bar, 60px) + env(safe-area-inset-bottom, 0px) + 12px
+    );
+  }
+}
 
 /* Segmented controls and toggles shared by the Contrast and Export tabs. */
 .knowledge-switch {

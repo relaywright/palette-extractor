@@ -177,3 +177,28 @@ test("the recolored photo is simulated, and the original beneath it is not filte
   await expect(layer).toHaveAttribute("data-active", "false");
   await expect(photo(page)).toHaveCSS("filter", 'url("#cvd-deuteranopia")');
 });
+
+test("on a phone the simulation badge sits above the tab bar", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/#p=b4643c.788c3c.141e78");
+  await ready(page);
+  await page.evaluate(() => scrollTo(0, 400));
+  await page.getByRole("tab", { name: "Contrast check" }).click();
+  await page.getByRole("radio", { name: "Deuteranopia" }).check();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("tabpanel")).toBeHidden();
+  const indicator = page.locator(".cvd-indicator");
+  await expect(indicator).toBeVisible();
+  const bar = page.getByRole("tablist", { name: "Palette tools" });
+  for (const top of [400, 0]) {
+    await page.evaluate((y) => scrollTo(0, y), top);
+    const [a, b] = [
+      (await indicator.boundingBox())!,
+      (await bar.boundingBox())!,
+    ];
+    expect(a.y + a.height, `scrolled to ${top}`).toBeLessThanOrEqual(b.y);
+  }
+});
