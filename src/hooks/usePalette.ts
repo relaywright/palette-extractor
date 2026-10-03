@@ -8,16 +8,15 @@ import {
 } from "react";
 import { type RGB, type SortMode, rgbToHex, sortPalette } from "../lib/color";
 import { extractPaletteDetailed, type ExtractionDetail } from "../lib/extract";
+import { SAME_COLOR_DISTANCE } from "../lib/compare";
 import { withoutBoxes } from "../lib/stageGroups";
 import { updatePaletteFavicon } from "../lib/favicon";
 import { oklabDistance, type ColorSpace } from "@relaywright/median-cut";
 import type { Source } from "./useImageSource";
 
 const HIGHLIGHT_DURATION_MS = 1500;
-// Switching spaces often nudges a swatch to a neighboring pixel of the same
-// color. Below this OKLab distance a swatch reads as unchanged, so only
-// visible differences are counted and highlighted.
-const SAME_COLOR_DISTANCE = 0.03;
+export type PinOutcome = "pinned" | "already" | "full" | "busy";
+const MAX_COLORS = 10;
 
 interface UsePaletteOptions {
   source: Source | null;
@@ -178,6 +177,22 @@ export function usePalette({
     [busy, source],
   );
 
+  // Pins a color picked from the photo. Pinned colors count
+  // toward the palette size, so when every slot is already pinned the
+  // palette grows by one, up to the limit.
+  const pinColor = useCallback(
+    (color: RGB): PinOutcome => {
+      if (busy || !source) return "busy";
+      const hex = rgbToHex(color);
+      if (locked.some((c) => rgbToHex(c) === hex)) return "already";
+      if (locked.length >= MAX_COLORS) return "full";
+      if (locked.length >= count) setCount(locked.length + 1);
+      setLocked([...locked, color]);
+      return "pinned";
+    },
+    [busy, source, locked, count],
+  );
+
   const bumpMinCount = useCallback(() => setCount((v) => Math.max(4, v)), []);
 
   const loadShared = useCallback((colors: RGB[]) => {
@@ -211,6 +226,7 @@ export function usePalette({
     total,
     lockedSet,
     toggleLock,
+    pinColor,
     bumpMinCount,
     loadShared,
     colorSpace,
