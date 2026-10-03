@@ -67,7 +67,10 @@ export default function BottomSheet({
   useEffect(() => {
     if (!open) return;
     const press = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !e.defaultPrevented) onClose();
+      // A modal dialog above the sheet (the shortcut list) owns Escape.
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      if (document.querySelector("dialog[open]")) return;
+      onClose();
     };
     document.addEventListener("keydown", press);
     return () => document.removeEventListener("keydown", press);
