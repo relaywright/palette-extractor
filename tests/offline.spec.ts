@@ -246,7 +246,12 @@ test.describe("against a site that deploys a new version", () => {
     await ready(page);
     await worker(page);
     const chunk = await page.evaluate(async () => {
-      const keys = await (await caches.open("palette-shell-v1")).keys();
+      // The saved copy is named after the build it belongs to.
+      const shell = (await caches.keys()).find((name) =>
+        name.startsWith("palette-shell-"),
+      );
+      if (!shell) return undefined;
+      const keys = await (await caches.open(shell)).keys();
       return keys
         .map((request) => new URL(request.url).pathname)
         .find((path) => /^\/assets\/ExportPanel-.*\.js$/.test(path));
