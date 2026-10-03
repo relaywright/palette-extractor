@@ -185,6 +185,132 @@ describe("checkBundle", () => {
     ]);
   });
 
+  it("decodes character references in attribute values before reading them", () => {
+    const dir = makeDist({
+      html: entryHtml(
+        `<link rel="moduleprelo&#97;d" href="/assets/pre-c.js">` +
+          `<link rel="module&#x70;reload" href="&#47;assets&#47;pre-d.js">` +
+          `<link rel="modulepreload" href="&sol;assets&sol;pre-e.js">` +
+          `<script type="mod&#117;le" src="/assets/extra-b.js"></script>`,
+      ),
+      manifest: entryManifest(),
+      files: {
+        "assets/index-a.js": 1 * KB,
+        "assets/extra-b.js": 1 * KB,
+        "assets/pre-c.js": 1 * KB,
+        "assets/pre-d.js": 1 * KB,
+        "assets/pre-e.js": 1 * KB,
+      },
+    });
+    expect(
+      row(checkBundle(dir, budgets, loose), "first-load JS").files.sort(),
+    ).toEqual([
+      "assets/extra-b.js",
+      "assets/index-a.js",
+      "assets/pre-c.js",
+      "assets/pre-d.js",
+      "assets/pre-e.js",
+      "assets/quantize.worker-abc.js",
+    ]);
+  });
+
+  it("leaves text that is not a character reference as it is", () => {
+    const dir = makeDist({
+      html: entryHtml(
+        `<link rel="modulepreload&unknown;" href="/assets/pre-c.js">` +
+          `<link rel="modulepreload&constructor;" href="/assets/pre-d.js">` +
+          `<link rel="modulepreload&#xZZ;" href="/assets/pre-e.js">` +
+          `<link rel="modulepreload&lt=" href="/assets/pre-f.js">`,
+      ),
+      manifest: entryManifest(),
+      files: {
+        "assets/index-a.js": 1 * KB,
+        "assets/pre-c.js": 1 * KB,
+        "assets/pre-d.js": 1 * KB,
+        "assets/pre-e.js": 1 * KB,
+        "assets/pre-f.js": 1 * KB,
+      },
+    });
+    expect(
+      row(checkBundle(dir, budgets, loose), "first-load JS").files.sort(),
+    ).toEqual(["assets/index-a.js", "assets/quantize.worker-abc.js"]);
+  });
+
+  it("counts a classic script toward first-load JS", () => {
+    const dir = makeDist({
+      html: entryHtml(
+        `<script src="/assets/legacy-b.js"></script>` +
+          `<script type="text/javascript" src="/assets/legacy-c.js"></script>` +
+          `<script type=" Application/JavaScript; charset=utf-8" src="/assets/legacy-d.js"></script>`,
+      ),
+      manifest: entryManifest(),
+      files: {
+        "assets/index-a.js": 1 * KB,
+        "assets/legacy-b.js": 1 * KB,
+        "assets/legacy-c.js": 1 * KB,
+        "assets/legacy-d.js": 1 * KB,
+      },
+    });
+    const result = checkBundle(dir, budgets, loose);
+    expect(result.problems).toEqual([]);
+    expect(row(result, "first-load JS").files.sort()).toEqual([
+      "assets/index-a.js",
+      "assets/legacy-b.js",
+      "assets/legacy-c.js",
+      "assets/legacy-d.js",
+      "assets/quantize.worker-abc.js",
+    ]);
+  });
+
+  it("fails when a classic script alone pushes first-load JS over budget", () => {
+    const dir = makeDist({
+      html: entryHtml(`<script src="/assets/legacy-b.js"></script>`),
+      manifest: entryManifest(),
+      files: { "assets/index-a.js": 1 * KB, "assets/legacy-b.js": 25 * KB },
+    });
+    const result = checkBundle(dir, budgets, loose);
+    expect(result.ok).toBe(false);
+    expect(row(result, "first-load JS").status).toBe("fail");
+  });
+
+  it("fails on a classic script it cannot map to a file or find on disk", () => {
+    const elsewhere = makeDist({
+      html: entryHtml(`<script src="https://cdn.example/lib.js"></script>`),
+      manifest: entryManifest(),
+      files: { "assets/index-a.js": 1 * KB },
+    });
+    expect(checkBundle(elsewhere, budgets, loose).problems.join("\n")).toMatch(
+      /cdn\.example\/lib\.js.*cannot be mapped/,
+    );
+    const missing = makeDist({
+      html: entryHtml(`<script src="/assets/legacy-b.js"></script>`),
+      manifest: entryManifest(),
+      files: { "assets/index-a.js": 1 * KB },
+    });
+    expect(checkBundle(missing, budgets, loose).problems.join("\n")).toMatch(
+      /missing: assets\/legacy-b\.js/,
+    );
+  });
+
+  it("does not count scripts a browser never runs", () => {
+    const dir = makeDist({
+      html: entryHtml(
+        `<script nomodule src="/assets/old-b.js"></script>` +
+          `<script type="application/json" src="/assets/data-c.json"></script>` +
+          `<script type="speculationrules">{}</script>` +
+          `<script>window.ready = true;</script>`,
+      ),
+      manifest: entryManifest(),
+      files: { "assets/index-a.js": 1 * KB },
+    });
+    const result = checkBundle(dir, budgets, loose);
+    expect(result.problems).toEqual([]);
+    expect(row(result, "first-load JS").files.sort()).toEqual([
+      "assets/index-a.js",
+      "assets/quantize.worker-abc.js",
+    ]);
+  });
+
   it("fails on an inline module script, whose imports it cannot measure", () => {
     const dir = makeDist({
       html: entryHtml(

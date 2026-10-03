@@ -40,6 +40,36 @@ export async function afterStageChange(
     )
     .toEqual({ canvases: ["new"], done: true, phase: "done" });
 }
+/**
+ * Records, on the page's clock, the moment the stage's phase next becomes
+ * "intro". The stage's own start mark is taken at its first drawn frame,
+ * which can fall well after the intro began when the main thread is busy.
+ * Call before the action that starts the intro; read the result with
+ * `introObservedAt`.
+ */
+export async function watchIntroStart(page: Page) {
+  await page.evaluate(() => {
+    const w = window as unknown as { __introAt?: number };
+    delete w.__introAt;
+    new MutationObserver((changes, observer) => {
+      for (const change of changes) {
+        const target = change.target as HTMLElement;
+        if (target.dataset.stagePhase !== "intro") continue;
+        w.__introAt = performance.now();
+        observer.disconnect();
+        return;
+      }
+    }).observe(document.body, {
+      attributes: true,
+      subtree: true,
+      attributeFilter: ["data-stage-phase"],
+    });
+  });
+}
+
+export const introObservedAt = (page: Page) =>
+  page.evaluate(() => (window as unknown as { __introAt?: number }).__introAt);
+
 export async function capability(page: Page, expected: boolean) {
   expect(
     await page.evaluate(

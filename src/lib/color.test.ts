@@ -71,9 +71,9 @@ describe("luminance-aware labels (acceptance: readable on light and dark)", () =
   });
 
   it("picks dark text on tricky mid-tone colors where dark has more contrast", () => {
-    // Salmon (#d18882): luminance ~0.32 — dark text contrast ~7:1, white ~2.5:1.
+    // Salmon (#d18882): luminance ~0.32: dark text contrast ~7:1, white ~2.5:1.
     expect(labelColorFor({ r: 209, g: 136, b: 130 })).toContain("20, 18, 12");
-    // Muted sage (#7d857a): luminance ~0.23 — dark text still wins.
+    // Muted sage (#7d857a): luminance ~0.23: dark text still wins.
     expect(labelColorFor({ r: 125, g: 133, b: 122 })).toContain("20, 18, 12");
   });
 
