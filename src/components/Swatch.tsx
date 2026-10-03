@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from "react";
+import { useContext, useState, type CSSProperties } from "react";
 import {
   type RGB,
   rgbToHex,
@@ -8,6 +8,8 @@ import {
   labelColorFor,
 } from "../lib/color";
 import { Icon } from "./Icon";
+import { EDIT_KEYS, SwatchEditsContext } from "../recolor/swatchEdits";
+import "./recolor.css";
 export type ValueKind = "hex" | "rgb" | "hsl";
 export function Swatch({
   id,
@@ -45,6 +47,8 @@ export function Swatch({
   // Moving a node restarts its CSS animations, so the entrance class goes
   // once it has played and a later re-sort cannot replay it.
   const [entering, setEntering] = useState(true);
+  const edits = useContext(SwatchEditsContext);
+  const edited = edits.edited.has(id);
   const hex = rgbToHex(color);
   const value =
     valueKind === "hex"
@@ -61,6 +65,12 @@ export function Swatch({
     <article
       className={`swatch ${entering ? "is-entering" : ""} ${selected ? "selected" : ""} ${changed ? "changed" : ""}`}
       data-swatch-id={id}
+      onKeyDown={(e) => {
+        if (e.ctrlKey || e.altKey || e.metaKey || !e.shiftKey) return;
+        if (!EDIT_KEYS.test(e.key)) return;
+        e.preventDefault();
+        edits.act(id, e.key);
+      }}
       onAnimationEnd={(e) => {
         if (e.target === e.currentTarget) setEntering(false);
       }}
@@ -77,10 +87,13 @@ export function Swatch({
           <button
             className="swatch-select"
             onClick={onSelect}
-            aria-label={`Inspect ${name}, ${hex}`}
+            aria-label={`Inspect ${name}, ${hex}${edited ? ", edited" : ""}`}
             aria-pressed={selected}
           >
-            <span>{String(index + 1).padStart(2, "0")}</span>
+            <span>
+              {String(index + 1).padStart(2, "0")}
+              {edited && <i className="edit-marker" />}
+            </span>
             <span>
               {showWeight
                 ? `${(weight * 100).toFixed(1)}%`
@@ -89,6 +102,17 @@ export function Swatch({
                   : "Extracted"}
             </span>
           </button>
+          {selected && (
+            <button
+              className="adjust-button"
+              onClick={() => edits.act(id, "adjust")}
+              aria-expanded={edits.adjusting}
+              aria-controls={edits.adjusting ? "adjust-panel" : undefined}
+              aria-label={`Adjust ${name}`}
+            >
+              Adjust
+            </button>
+          )}
           <button
             className={`lock-button ${locked ? "is-locked" : ""}`}
             onClick={onToggleLock}

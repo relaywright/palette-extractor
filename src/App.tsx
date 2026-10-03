@@ -17,13 +17,14 @@ import {
 import { type ExportFormat, exportPalette } from "./lib/exporters";
 import { nearestColorName, paletteColorNames } from "./lib/names";
 import { encodePaletteHash } from "./lib/share";
-import { downloadBlob, renderPaletteCard } from "./lib/paletteCard";
 import { useImageSource, type Source } from "./hooks/useImageSource";
 import { usePalette } from "./hooks/usePalette";
 import { useColorSpaceComparison } from "./hooks/useColorSpaceComparison";
 import { useCopyFeedback } from "./hooks/useCopyFeedback";
 import { useSharedPalette } from "./hooks/useSharedPalette";
 import { useShortcuts } from "./hooks/useShortcuts";
+import { usePaletteEdits } from "./hooks/usePaletteEdits";
+import { SwatchEditsContext } from "./recolor/swatchEdits";
 import type { StageResult } from "./components/Stage";
 import { stageUnavailable } from "./stage/handoff";
 
@@ -83,6 +84,12 @@ const ShortcutSheet = lazy(() =>
   import("./components/ShortcutSheet").then((m) => ({
     default: m.ShortcutSheet,
   })),
+);
+// Recoloring loads on the first edit, so a first visit never downloads it.
+const RecolorLayer = lazy(() => import("./components/RecolorLayer"));
+const loadNudge = () => import("./recolor/nudge");
+const AdjustPanel = lazy(() =>
+  import("./components/AdjustPanel").then((m) => ({ default: m.AdjustPanel })),
 );
 
 const samples: Source[] = [
@@ -167,7 +174,7 @@ export default function App() {
     imageSource;
   const {
     sorted,
-    colors,
+    colors: extractedColors,
     total,
     lockedSet,
     count,
@@ -184,6 +191,17 @@ export default function App() {
     changedHexes,
   );
   const { copied, notice } = copyFeedback;
+  // Everything below that shows or exports the palette reads the edited one.
+  const edits = usePaletteEdits(extractedColors, loaded?.src ?? "");
+  const colors = edits.colors;
+  const shownSorted = useMemo(
+    () =>
+      colors === extractedColors
+        ? sorted
+        : sorted.map((entry, i) => ({ ...entry, color: colors[i] })),
+    [sorted, colors, extractedColors],
+  );
+  const [adjusting, setAdjusting] = useState(false);
   const hero = useRef<HTMLImageElement>(null);
   const stageHost = useRef<HTMLDivElement>(null);
   const [stageReady, setStageReady] = useState(false);
@@ -242,7 +260,13 @@ export default function App() {
     [loaded, palette.detail, palette.detailColorSpace, sorted],
   );
 
-  const presentation = usePresentation(sorted, loaded, lockedSet);
+  // A pinned color stays pinned after it is edited.
+  const shownLocked = new Set(
+    sorted.flatMap((entry, i) =>
+      lockedSet.has(rgbToHex(entry.color)) ? [rgbToHex(colors[i])] : [],
+    ),
+  );
+  const presentation = usePresentation(shownSorted, loaded, shownLocked);
   // The inspector falls back to the first swatch; the swatches must agree.
   const selectedSwatch =
     (selection?.photo === presentation.photo &&
@@ -258,6 +282,49 @@ export default function App() {
     ? names[presentation.swatches.indexOf(selectedSwatch)]
     : nearestColorName(inspected);
   const showWeights = !!loaded && locked.length === 0;
+  const selectedIndex = selectedSwatch
+    ? presentation.swatches.indexOf(selectedSwatch)
+    : -1;
+  const slotOf = (id: string) =>
+    presentation.swatches.findIndex((swatch) => swatch.id === id);
+  const selectSwatch = (id: string) =>
+    setSelection({ id, photo: presentation.photo });
+  const swatchEdits = {
+    edited: new Set(
+      presentation.swatches
+        .filter((_, i) => colors[i] !== extractedColors[i])
+        .map((swatch) => swatch.id),
+    ),
+    adjusting,
+    act: (id: string, action: string) => {
+      const slot = slotOf(id);
+      if (slot < 0 || busy) return;
+      selectSwatch(id);
+      if (action === "adjust") return setAdjusting((open) => !open);
+      void loadNudge().then(({ nudgeEdit, stepForKey }) => {
+        const step = stepForKey(action);
+        edits.setEdit(
+          slot,
+          step ? (edit) => nudgeEdit(extractedColors[slot], edit, step) : null,
+        );
+      });
+    },
+  };
+  const resetEdits = () => {
+    edits.resetAll();
+    copyFeedback.setNotice("Colors reset to the extracted palette.");
+    requestAnimationFrame(() =>
+      document
+        .querySelector<HTMLElement>(".swatch.selected .swatch-select")
+        ?.focus(),
+    );
+  };
+  // The grid reports the color it shows; a pin belongs to the extracted one.
+  const toggleLock = (color: RGB) => {
+    const shown = rgbToHex(color);
+    const slot = colors.findIndex((c) => rgbToHex(c) === shown);
+    palette.toggleLock(slot >= 0 ? extractedColors[slot] : color);
+  };
 
   const copy = (text: string, key: string) => void copyFeedback.copy(text, key);
   // Each shortcut does what its button does, so the button shows the
@@ -294,6 +361,9 @@ export default function App() {
   });
   const saveCard = async () => {
     try {
+      const { downloadBlob, renderPaletteCard } = await import(
+        "./lib/paletteCard"
+      );
       const blob = await renderPaletteCard(
         colors.map((color, index) => ({ color, name: names[index] })),
         loaded?.name ?? "Shared palette",
@@ -514,6 +584,16 @@ export default function App() {
                   </button>
                 </div>
               )}
+              {edits.touched && loaded && (
+                <Suspense fallback={null}>
+                  <RecolorLayer
+                    image={hero}
+                    src={loaded.src}
+                    original={extractedColors}
+                    edited={colors}
+                  />
+                </Suspense>
+              )}
               <div
                 ref={stageHost}
                 className="stage-host"
@@ -586,23 +666,36 @@ export default function App() {
               disabled={busy}
             >
               <legend className="sr-only">Extracted colors</legend>
-              <SwatchGrid
-                presentation={presentation}
-                valueKind={valueKind}
-                total={total}
-                showWeights={showWeights}
-                lockedSet={lockedSet}
-                canLock={!!source}
-                changedHexes={changedHexes}
-                copied={copied}
-                onCopy={copy}
-                onToggleLock={palette.toggleLock}
-                selectedId={selectedSwatch?.id ?? null}
-                onSelect={(id) =>
-                  setSelection({ id, photo: presentation.photo })
-                }
-              />
+              <SwatchEditsContext.Provider value={swatchEdits}>
+                <SwatchGrid
+                  presentation={presentation}
+                  valueKind={valueKind}
+                  total={total}
+                  showWeights={showWeights}
+                  lockedSet={shownLocked}
+                  canLock={!!source}
+                  changedHexes={changedHexes}
+                  copied={copied}
+                  onCopy={copy}
+                  onToggleLock={toggleLock}
+                  selectedId={selectedSwatch?.id ?? null}
+                  onSelect={(id) =>
+                    setSelection({ id, photo: presentation.photo })
+                  }
+                />
+              </SwatchEditsContext.Provider>
             </fieldset>
+            {adjusting && !busy && selectedIndex >= 0 && (
+              <Suspense fallback={null}>
+                <AdjustPanel
+                  name={names[selectedIndex]}
+                  original={extractedColors[selectedIndex]}
+                  edit={edits.current[selectedIndex]}
+                  onChange={(next) => edits.setEdit(selectedIndex, next)}
+                  onClose={() => setAdjusting(false)}
+                />
+              </Suspense>
+            )}
             <div className="palette-toolbar">
               <div
                 className="count-control"
@@ -640,6 +733,11 @@ export default function App() {
                   <option value="luminance">By lightness</option>
                 </select>
               </label>
+              {colors !== extractedColors && (
+                <button className="text-button" onClick={resetEdits}>
+                  Reset to extracted
+                </button>
+              )}
               {locked.length > 0 && source && (
                 <button
                   className="text-button"
@@ -657,7 +755,7 @@ export default function App() {
                 showWeights ? "Relative color distribution" : "Palette colors"
               }
             >
-              {sorted.map((e, i) => (
+              {shownSorted.map((e, i) => (
                 <i
                   key={i}
                   style={{
