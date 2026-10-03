@@ -771,7 +771,7 @@ export default function App() {
                     setFormat(value);
                     copyFeedback.setCopied(null);
                   }}
-                  onCopy={() => copy(exportPalette(colors, format), "export")}
+                  onCopy={(text) => copy(text, "export")}
                   copied={copied === "export"}
                 />
               )}
