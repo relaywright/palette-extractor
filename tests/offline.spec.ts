@@ -238,3 +238,41 @@ test.describe("against a site that deploys a new version", () => {
     expect(await page.content()).toContain("<!-- two -->");
   });
 });
+
+test("a shared photo that arrives late does not replace a sample chosen meanwhile", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await ready(page);
+  await page.evaluate(async () => {
+    const cache = await caches.open("palette-shared-image");
+    await cache.put(
+      "/shared-image",
+      new Response(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100" height="100" fill="#2a9d8f"/></svg>',
+        {
+          headers: {
+            "Content-Type": "image/svg+xml",
+            "X-File-Name": "late-share.svg",
+          },
+        },
+      ),
+    );
+  });
+  // Reading the parked photo takes a while, as it can on a busy phone.
+  await page.addInitScript(() => {
+    if (!location.search.includes("shared")) return;
+    const match = Cache.prototype.match;
+    Cache.prototype.match = async function (...args) {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      return match.apply(this, args);
+    };
+  });
+  await page.goto("/?shared=1");
+  await page.getByRole("button", { name: "Try Forest floor" }).click();
+  await ready(page);
+  await page.waitForTimeout(2500);
+  await expect(page.locator(".image-caption > span").first()).toHaveText(
+    "Forest floor",
+  );
+});

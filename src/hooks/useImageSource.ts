@@ -94,11 +94,19 @@ export function useImageSource({
       "",
       location.pathname + (rest ? `?${rest}` : "") + location.hash,
     );
-    const missing = () =>
-      setError("The shared photo did not arrive. Try uploading it instead.");
+    // Choosing anything else while the photo is being read makes it stale.
+    const id = ++loadRequest.current;
+    const missing = () => {
+      if (id === loadRequest.current)
+        setError("The shared photo did not arrive. Try uploading it instead.");
+    };
     void import("../lib/shared-image")
       .then((m) => m.takeSharedImage())
-      .then((file) => (file ? loadFile(file) : missing()), missing);
+      .then((file) => {
+        if (id !== loadRequest.current) return;
+        if (file) loadFile(file);
+        else missing();
+      }, missing);
   }, [loadFile]);
 
   const loadUrl = useCallback(
