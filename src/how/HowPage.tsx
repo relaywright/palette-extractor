@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useImageSource, type Source } from "../hooks/useImageSource";
 import { loadImage } from "../lib/extract";
 import { PALETTE_SIZE, workingSize, MAX_DIMENSION } from "./analysis";
@@ -47,23 +47,39 @@ export default function HowPage() {
   const [busy, setBusy] = useState(true);
   const [failure, setFailure] = useState<string | null>(null);
 
+  // The worker behind the photo on screen. It outlives a failed upload and
+  // is replaced only when a new photo has been analyzed.
+  const liveClient = useRef<AnalysisClient | null>(null);
+  useEffect(
+    () => () => {
+      liveClient.current?.dispose();
+      liveClient.current = null;
+    },
+    [],
+  );
+
   useEffect(() => {
     if (!source) return;
     const controller = new AbortController();
-    const client = new AnalysisClient();
+    let client: AnalysisClient | null = null;
+    let adopted = false;
     setBusy(true);
     setFailure(null);
     void (async () => {
       const img = await loadImage(source.src, controller.signal);
       const { width, height, rgba } = workingPixels(img);
-      const result = await client.analyze(rgba, width, height, PALETTE_SIZE);
+      const fresh = (client = new AnalysisClient());
+      const result = await fresh.analyze(rgba, width, height, PALETTE_SIZE);
       if (controller.signal.aborted) return;
+      adopted = true;
+      liveClient.current?.dispose();
+      liveClient.current = fresh;
       setData((previous) => ({
         name: source.name,
         img,
         analysis: result.analysis,
         rgba: result.rgba,
-        client,
+        client: fresh,
         version: (previous?.version ?? 0) + 1,
       }));
       setBusy(false);
@@ -76,7 +92,7 @@ export default function HowPage() {
     });
     return () => {
       controller.abort();
-      client.dispose();
+      if (!adopted) client?.dispose();
     };
   }, [source]);
 
