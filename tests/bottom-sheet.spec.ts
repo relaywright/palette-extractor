@@ -270,3 +270,20 @@ for (const width of [768, 1440]) {
     );
   });
 }
+
+test("Escape closes only the topmost overlay on a phone", async ({ page }) => {
+  await openOnPhone(page);
+  await page.getByRole("tab", { name: "Export palette" }).click();
+  await expect(panel(page)).toBeVisible();
+  await page.keyboard.press("?");
+  const shortcuts = page.getByRole("dialog", { name: "Keyboard shortcuts" });
+  await expect(shortcuts).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(shortcuts).toBeHidden();
+  await expect(panel(page)).toBeVisible();
+  expect((await focused(page)).inSheet).toBe(true);
+  // With nothing above it, Escape closes the tool sheet as before.
+  await page.keyboard.press("Escape");
+  await expect(panel(page)).toBeHidden();
+  expect((await focused(page)).id).toBe("tab-export");
+});

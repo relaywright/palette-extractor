@@ -154,3 +154,51 @@ for (const width of [390, 768, 1440]) {
     expect(await axeViolations(page)).toEqual([]);
   });
 }
+
+test("the recolored photo is simulated, and the original beneath it is not filtered twice", async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/");
+  await ready(page);
+  await settled(page);
+  await page.locator(".swatch-select").nth(1).focus();
+  await page.keyboard.press("Shift+ArrowUp");
+  const layer = page.locator(".recolor-layer");
+  await expect(layer).toHaveAttribute("data-active", "true");
+  await openContrast(page);
+  await page.getByRole("radio", { name: "Deuteranopia" }).check();
+  await expect(layer).toHaveCSS("filter", 'url("#cvd-deuteranopia")');
+  await expect(photo(page)).toHaveCSS("filter", "none");
+
+  // Resetting the edit brings the original photo back as the filtered layer.
+  await page.getByRole("tab", { name: "In context" }).click();
+  await page.getByRole("button", { name: "Reset to extracted" }).click();
+  await expect(layer).toHaveAttribute("data-active", "false");
+  await expect(photo(page)).toHaveCSS("filter", 'url("#cvd-deuteranopia")');
+});
+
+test("on a phone the simulation badge sits above the tab bar", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/#p=b4643c.788c3c.141e78");
+  await ready(page);
+  await page.evaluate(() => scrollTo(0, 400));
+  await page.getByRole("tab", { name: "Contrast check" }).click();
+  await page.getByRole("radio", { name: "Deuteranopia" }).check();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("tabpanel")).toBeHidden();
+  const indicator = page.locator(".cvd-indicator");
+  await expect(indicator).toBeVisible();
+  const bar = page.getByRole("tablist", { name: "Palette tools" });
+  for (const top of [400, 0]) {
+    await page.evaluate((y) => scrollTo(0, y), top);
+    const [a, b] = [
+      (await indicator.boundingBox())!,
+      (await bar.boundingBox())!,
+    ];
+    expect(a.y + a.height, `scrolled to ${top}`).toBeLessThanOrEqual(b.y);
+  }
+});

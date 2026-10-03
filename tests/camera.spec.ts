@@ -272,3 +272,91 @@ for (const width of [390, 768, 1440]) {
     await axeClean(page);
   });
 }
+
+/** Makes encoding a frozen frame slow, the way it is on a busy phone. */
+async function slowEncoding(page: Page) {
+  await page.addInitScript(() => {
+    const win = window as unknown as { __encodes: number };
+    win.__encodes = 0;
+    const original = HTMLCanvasElement.prototype.toBlob;
+    HTMLCanvasElement.prototype.toBlob = function (
+      this: HTMLCanvasElement,
+      callback: BlobCallback,
+      type?: string,
+      quality?: number,
+    ) {
+      win.__encodes++;
+      original.call(
+        this,
+        (blob) => setTimeout(callback, 1500, blob),
+        type,
+        quality,
+      );
+    };
+  });
+}
+
+test("a freeze still encoding does not replace a sample chosen right after it", async ({
+  page,
+}) => {
+  await slowEncoding(page);
+  await page.goto("/");
+  await ready(page);
+  await startCamera(page);
+  await page.getByRole("button", { name: "Freeze" }).click();
+  await page.getByRole("button", { name: "Try Forest floor" }).click();
+  await expect(page.locator(".camera-layer")).toHaveCount(0);
+  await ready(page);
+  await page.waitForTimeout(2500);
+  await expect(page.locator(".image-caption > span").first()).toHaveText(
+    "Forest floor",
+  );
+});
+
+test("a freeze still encoding does not survive closing the camera", async ({
+  page,
+}) => {
+  await slowEncoding(page);
+  await page.goto("/");
+  await ready(page);
+  await startCamera(page);
+  await page.getByRole("button", { name: "Freeze" }).click();
+  await page.getByRole("button", { name: "Close camera" }).click();
+  await expect(page.locator(".camera-layer")).toHaveCount(0);
+  await page.waitForTimeout(2500);
+  await expect(page.locator(".image-caption > span").first()).toHaveText(
+    "Golden dunes",
+  );
+});
+
+test("repeated Freeze presses encode one photo", async ({ page }) => {
+  await slowEncoding(page);
+  await page.goto("/");
+  await ready(page);
+  await startCamera(page);
+  await page.locator(".camera-freeze").dblclick();
+  await expect(page.locator(".image-caption > span").first()).toHaveText(
+    "Camera photo",
+    { timeout: 10000 },
+  );
+  expect(
+    await page.evaluate(
+      () => (window as unknown as { __encodes: number }).__encodes,
+    ),
+  ).toBe(1);
+});
+
+test("the live video is color-vision simulated once, under the photo", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await ready(page);
+  await startCamera(page);
+  await page.getByRole("tab", { name: "Contrast check" }).click();
+  await page.getByRole("radio", { name: "Deuteranopia" }).check();
+  await expect(page.locator(".camera-video")).toHaveCSS(
+    "filter",
+    'url("#cvd-deuteranopia")',
+  );
+  await expect(page.locator(".source-frame > img")).toHaveCSS("filter", "none");
+});

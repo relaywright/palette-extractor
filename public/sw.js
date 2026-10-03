@@ -1,71 +1,86 @@
-// Offline support. Pages load network-first so a new deploy shows up on the
-// next online visit; hashed build files and static media load cache-first.
-// Bump VERSION to drop every cache this worker created earlier.
-const VERSION = "v1";
-const SHELL = `palette-shell-${VERSION}`;
+// Offline support. Each build writes its own copy of this file with a
+// revision and the complete list of files its pages use (scripts/sw-build.mjs),
+// so a deploy always installs a new worker. Installing saves every file under
+// that revision and only succeeds when all of them arrive: until then the
+// previous worker keeps serving a consistent older version.
+//
+// Pages load network-first, so a new deploy shows up on the next online visit.
+// Offline, each page comes from the copy saved by the worker that matches it,
+// which is why a saved page never names a file that is not saved too.
+const REVISION = "development";
+const PAGES = [];
+const FILES = [];
+
+const CACHE_PREFIX = "palette-shell-";
+const SHELL = CACHE_PREFIX + REVISION;
 const SHARED = "palette-shared-image";
 const SHARED_KEY = "/shared-image";
 const SHARE_TARGET = "/share-target";
 const NAVIGATION_TIMEOUT_MS = 4000;
-// Each deploy brings new hashed build files; the oldest go first.
-const MAX_BUILD_FILES = 48;
+const SAVED_FILES = new Set(FILES);
 
-const CACHE_FIRST =
-  /^\/(assets|samples|fonts)\/|^\/(icon-\d+|apple-touch-icon)\.png$/;
-const ICONS = ["/icon-192.png", "/icon-512.png"];
+const OFFLINE_PAGE = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Offline</title>
+<style>
+body{margin:0;display:grid;min-height:100vh;place-items:center;background:#16191b;color:#e8e7e2;font:16px/1.5 system-ui,sans-serif}
+main{max-width:30rem;padding:24px}
+a{color:#e1c6a4}
+</style>
+</head>
+<body>
+<main>
+<h1>You are offline</h1>
+<p>This page was not saved for offline use. Reconnect to open it, or <a href="/">go to the palette tool</a>.</p>
+</main>
+</body>
+</html>`;
 
-// The page references its files by root-relative path. Build output names its
-// lazy chunks, worker, images and fonts inside the scripts and styles, so
-// those are read too ("./Chunk.js" sits beside the script that imports it).
-const PAGE_FILES = /(?:href|src)="(\/[^"?#]+)"/g;
-const NAMED_FILES =
-  /(?:\.\/|\/?assets\/|\/samples\/|\/fonts\/)[\w.-]+\.(?:js|css|svg|webp|png|woff2)/g;
-
-function resolveNamed(match) {
-  if (match.startsWith("./")) return "/assets/" + match.slice(2);
-  return match.startsWith("/") ? match : "/" + match;
+// A redirected response cannot answer a navigation, so a saved page is
+// always a plain copy.
+async function plainCopy(response) {
+  if (!response.redirected) return response;
+  return new Response(await response.blob(), {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
 }
 
-async function crawl(cache, start) {
-  const seen = new Set(start);
-  const queue = start.filter((url) => /\.(?:js|css)$/.test(url));
-  while (queue.length) {
-    const url = queue.pop();
-    const response = await fetch(url);
-    if (!response.ok) continue;
-    await cache.put(url, response.clone());
-    for (const match of (await response.text()).matchAll(NAMED_FILES)) {
-      const file = resolveNamed(match[0]);
-      if (seen.has(file)) continue;
-      seen.add(file);
-      if (/\.(?:js|css)$/.test(file)) queue.push(file);
-    }
-  }
-  return [...seen];
+// A page must name only files this revision saves. A deploy that lands
+// between the worker's download and its page request would otherwise save a
+// page that points at files the offline copy lacks.
+function checkPageFiles(page, html) {
+  for (const [, url] of html.matchAll(/(?:href|src)="(\/assets\/[^"?#]+)"/g))
+    if (!SAVED_FILES.has(url))
+      throw new Error(`${page} uses ${url}, which this build does not list.`);
 }
 
 async function precache() {
   const cache = await caches.open(SHELL);
-  const page = await fetch("/", { cache: "reload" });
-  if (!page.ok) throw new Error("The app shell could not be fetched.");
-  await cache.put("/", page.clone());
-  const referenced = [...(await page.text()).matchAll(PAGE_FILES)].map(
-    (match) => match[1],
-  );
-  const files = await crawl(cache, [
-    ...new Set([...referenced.filter((url) => CACHE_FIRST.test(url)), ...ICONS]),
-  ]);
-  // Only the shell must succeed; a missing extra never blocks installing.
-  await Promise.all(
-    files.map(async (url) => {
-      if (await cache.match(url)) return;
-      try {
-        await cache.add(url);
-      } catch (error) {
-        console.warn("Skipped caching", url, error);
-      }
-    }),
-  );
+  try {
+    await Promise.all([
+      ...PAGES.map(async (page) => {
+        const response = await fetch(page, { cache: "reload" });
+        if (!response.ok)
+          throw new Error(`${page} answered ${response.status}`);
+        checkPageFiles(page, await response.clone().text());
+        await cache.put(page, await plainCopy(response));
+      }),
+      ...FILES.map(async (url) => {
+        const response = await fetch(url, { cache: "reload" });
+        if (!response.ok) throw new Error(`${url} answered ${response.status}`);
+        await cache.put(url, response);
+      }),
+    ]);
+  } catch (error) {
+    // Never leave a half-saved revision behind.
+    await caches.delete(SHELL);
+    throw error;
+  }
 }
 
 self.addEventListener("install", (event) => {
@@ -76,7 +91,7 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(
     (async () => {
       for (const name of await caches.keys())
-        if (name.startsWith("palette-shell-") && name !== SHELL)
+        if (name.startsWith(CACHE_PREFIX) && name !== SHELL)
           await caches.delete(name);
       await self.clients.claim();
     })(),
@@ -84,59 +99,56 @@ self.addEventListener("activate", (event) => {
 });
 
 // Each page is saved under its own path (the app and the explainer are
-// separate pages); a query such as ?shared=1 does not make a new copy.
+// separate pages); a query such as ?shared=1 does not make a new copy. The
+// host may serve the explainer as /how, so that reads as the same page.
 function pageKey(url) {
   const path = new URL(url).pathname;
-  return path === "/index.html" ? "/" : path;
+  if (path === "/index.html") return "/";
+  if (path === "/how" || path === "/how/") return "/how.html";
+  return path;
 }
 
-async function openPage(event) {
-  const cache = await caches.open(SHELL);
-  const key = pageKey(event.request.url);
-  const update = fetch(event.request).then((response) => {
-    if (response.ok && !response.redirected) cache.put(key, response.clone());
-    return response;
-  });
-  // The update keeps running after a slow network hands over to the cache.
-  event.waitUntil(update.catch(() => undefined));
+async function openPage(request) {
+  const key = pageKey(request.url);
+  // "no-cache" revalidates with the server, so the browser's own HTTP cache
+  // never hands back an older deploy of the page.
+  const update = fetch(request, { cache: "no-cache" });
+  void update.catch(() => null);
   const timeout = new Promise((resolve) =>
     setTimeout(resolve, NAVIGATION_TIMEOUT_MS, null),
   );
+  let network;
   try {
-    const first = await Promise.race([update, timeout]);
-    if (first) return first;
+    network = await Promise.race([update, timeout]);
   } catch (error) {
     console.warn("Page request failed, using the saved copy", error);
+    network = undefined;
   }
-  return (await cache.match(key)) ?? (await cache.match("/")) ?? update;
+  if (network && network.status < 500) return network;
+  const saved = await (await caches.open(SHELL)).match(key);
+  if (saved) return saved;
+  if (network) return network;
+  // A slow network with nothing saved is worth waiting for.
+  if (network === null) {
+    try {
+      return await update;
+    } catch (error) {
+      console.warn("Page request failed and nothing is saved", error);
+    }
+  }
+  return new Response(OFFLINE_PAGE, {
+    status: 503,
+    headers: { "Content-Type": "text/html; charset=utf-8" },
+  });
 }
 
-async function trimBuildFiles(cache) {
-  const saved = (await cache.keys()).filter((request) =>
-    new URL(request.url).pathname.startsWith("/assets/"),
-  );
-  await Promise.all(
-    saved.slice(0, Math.max(0, saved.length - MAX_BUILD_FILES)).map((request) =>
-      cache.delete(request),
-    ),
-  );
-}
-
-async function cacheFirst(event) {
-  const { request } = event;
+async function savedFile(request) {
   const cache = await caches.open(SHELL);
   // Module scripts and stylesheets are requested with CORS, so they send an
   // Origin header the saved copies were fetched without. A server that answers
   // "Vary: Origin" would make every one of them a miss; these files are named
   // by their content or never change, so Vary has nothing to say about them.
-  const hit = await cache.match(request, { ignoreVary: true });
-  if (hit) return hit;
-  const response = await fetch(request);
-  if (response.ok)
-    event.waitUntil(
-      cache.put(request, response.clone()).then(() => trimBuildFiles(cache)),
-    );
-  return response;
+  return (await cache.match(request, { ignoreVary: true })) ?? fetch(request);
 }
 
 // Android's share sheet posts the photo here. It is parked in Cache Storage
@@ -171,7 +183,6 @@ self.addEventListener("fetch", (event) => {
     return;
   }
   if (request.method !== "GET") return;
-  if (request.mode === "navigate") event.respondWith(openPage(event));
-  else if (CACHE_FIRST.test(url.pathname))
-    event.respondWith(cacheFirst(event));
+  if (request.mode === "navigate") event.respondWith(openPage(request));
+  else if (SAVED_FILES.has(url.pathname)) event.respondWith(savedFile(request));
 });

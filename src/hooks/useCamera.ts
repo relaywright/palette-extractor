@@ -78,6 +78,10 @@ export function useCamera({
   // Set once a freeze starts, so a sample still in flight cannot replace the
   // palette of the frame being kept.
   const frozen = useRef(false);
+  // The freeze whose photo is still being encoded, if any. Closing, retrying
+  // or leaving clears it, so a late result is dropped instead of replacing a
+  // photo chosen since.
+  const pendingFreeze = useRef<symbol | null>(null);
   // The loop reads the newest values without restarting the stream.
   const latest = useRef({ request, onFrame, onFreeze, onClose });
   latest.current = { request, onFrame, onFreeze, onClose };
@@ -86,6 +90,11 @@ export function useCamera({
     stream.current?.getTracks().forEach((track) => track.stop());
     stream.current = null;
     if (video.current) video.current.srcObject = null;
+  }, []);
+
+  const cancelFreeze = useCallback(() => {
+    pendingFreeze.current = null;
+    frozen.current = false;
   }, []);
 
   const fail = useCallback(
@@ -128,9 +137,10 @@ export function useCamera({
       });
     return () => {
       cancelled = true;
+      cancelFreeze();
       release();
     };
-  }, [attempt, fail, release]);
+  }, [attempt, fail, release, cancelFreeze]);
 
   useEffect(() => {
     if (status !== "live") return;
@@ -178,6 +188,7 @@ export function useCamera({
 
   useEffect(() => {
     const hide = () => {
+      cancelFreeze();
       release();
       latest.current.onClose("Camera stopped because the tab was hidden.");
     };
@@ -190,20 +201,25 @@ export function useCamera({
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("pagehide", release);
     };
-  }, [release]);
+  }, [release, cancelFreeze]);
 
   const freeze = useCallback(() => {
     const element = video.current;
     const target = document.createElement("canvas");
     if (
+      pendingFreeze.current ||
       status !== "live" ||
       !element ||
       !drawFrame(element, target, PHOTO_SIZE)
     )
       return;
     frozen.current = true;
+    const mine = Symbol("freeze");
+    pendingFreeze.current = mine;
     target.toBlob(
       (blob) => {
+        if (pendingFreeze.current !== mine) return;
+        pendingFreeze.current = null;
         if (!blob) {
           fail(null);
           return;
@@ -218,7 +234,15 @@ export function useCamera({
     );
   }, [status, fail, release]);
 
-  const retry = useCallback(() => setAttempt((n) => n + 1), []);
+  const retry = useCallback(() => {
+    cancelFreeze();
+    setAttempt((n) => n + 1);
+  }, [cancelFreeze]);
 
-  return { video, status, message, freeze, retry };
+  const close = useCallback(() => {
+    cancelFreeze();
+    latest.current.onClose();
+  }, [cancelFreeze]);
+
+  return { video, status, message, freeze, retry, close };
 }

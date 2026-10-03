@@ -1,17 +1,28 @@
 /* Color-vision simulation: the photo (and the point cloud of its pixels), the
    swatches and the mockup. The attribute is set on the root once the filters
-   in CvdFilterDefs exist. */
-[data-cvd="protanopia"]
-  :is(.source-frame > img, .stage-points, .swatch-grid, .brand-preview) {
-  filter: url(#cvd-protanopia);
+   in CvdFilterDefs exist. Whichever layer shows the photo takes the filter, so
+   it is applied once: the recolored copy or the live camera replaces the
+   original image beneath it, which keeps its filter off. */
+[data-cvd="protanopia"] {
+  --cvd-filter: url(#cvd-protanopia);
 }
-[data-cvd="deuteranopia"]
-  :is(.source-frame > img, .stage-points, .swatch-grid, .brand-preview) {
-  filter: url(#cvd-deuteranopia);
+[data-cvd="deuteranopia"] {
+  --cvd-filter: url(#cvd-deuteranopia);
 }
-[data-cvd="tritanopia"]
-  :is(.source-frame > img, .stage-points, .swatch-grid, .brand-preview) {
-  filter: url(#cvd-tritanopia);
+[data-cvd="tritanopia"] {
+  --cvd-filter: url(#cvd-tritanopia);
+}
+[data-cvd]
+  :is(
+    .source-frame
+      > img:not(:has(~ :is(.camera-layer, .recolor-layer[data-active="true"]))),
+    .recolor-layer[data-active="true"],
+    .camera-video,
+    .stage-points,
+    .swatch-grid,
+    .brand-preview
+  ) {
+  filter: var(--cvd-filter);
 }
 
 .cvd-defs {
@@ -54,6 +65,14 @@
 .cvd-indicator button:focus-visible {
   outline: 2px solid #f1eee8;
   outline-offset: 2px;
+}
+/* Phones have a tab bar fixed to the bottom: the badge rides above it. */
+@media (max-width: 580px) {
+  .cvd-indicator {
+    bottom: calc(
+      var(--tab-bar, 60px) + env(safe-area-inset-bottom, 0px) + 12px
+    );
+  }
 }
 
 /* Segmented controls and toggles shared by the Contrast and Export tabs. */

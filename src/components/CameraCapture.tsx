@@ -51,7 +51,7 @@ export default function CameraCapture({
           <button
             className="icon-button camera-close"
             aria-label="Close camera"
-            onClick={() => onClose()}
+            onClick={camera.close}
           >
             <Icon name="close" />
           </button>
@@ -76,7 +76,7 @@ export default function CameraCapture({
             <button className="button secondary" onClick={camera.retry}>
               Try again
             </button>
-            <button className="text-button" onClick={() => onClose()}>
+            <button className="text-button" onClick={camera.close}>
               Close
             </button>
           </div>
