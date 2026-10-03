@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { suggestRoles } from "./theme";
+import { resolveRoles, suggestRoles } from "./theme";
+import { contrastRatio } from "./contrast";
 
 describe("palette role suggestions", () => {
   it("selects the strongest contrast pair and uses only source colors", () => {
@@ -64,5 +65,41 @@ describe("palette role suggestions", () => {
         { r: 125, g: 125, b: 125 },
       ])!.ratio,
     ).toBeLessThan(4.5);
+  });
+});
+
+describe("resolveRoles", () => {
+  const dark = { r: 0, g: 0, b: 0 },
+    light = { r: 255, g: 255, b: 255 },
+    accent = { r: 230, g: 80, b: 40 },
+    mid = { r: 120, g: 120, b: 120 };
+  const palette = [accent, dark, light, mid];
+
+  it("matches the suggestion when nothing is picked", () => {
+    const roles = resolveRoles(palette, {})!;
+    expect(roles.surface).toEqual(light);
+    expect(roles.text).toEqual(dark);
+    expect(roles.accent).toEqual(accent);
+    expect(roles.indices).toEqual({ surface: 2, text: 1, accent: 0 });
+    expect(roles.changed).toBe(false);
+  });
+  it("applies a pick and recomputes contrast from it", () => {
+    const roles = resolveRoles(palette, { text: 3 })!;
+    expect(roles.text).toEqual(mid);
+    expect(roles.textRatio).toBeCloseTo(contrastRatio(mid, light), 5);
+    expect(roles.textRatio).toBeLessThan(roles.bestRatio);
+    expect(roles.changed).toBe(true);
+  });
+  it("ignores a pick the palette no longer has", () => {
+    const roles = resolveRoles(palette, { accent: 9, surface: -1 })!;
+    expect(roles.indices).toEqual({ surface: 2, text: 1, accent: 0 });
+    expect(roles.changed).toBe(false);
+  });
+  it("does not count a pick of an identical color as a change", () => {
+    const twin = [...palette, { ...light }];
+    expect(resolveRoles(twin, { surface: 4 })!.changed).toBe(false);
+  });
+  it("has nothing to resolve for an empty palette", () => {
+    expect(resolveRoles([], {})).toBeNull();
   });
 });

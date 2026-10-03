@@ -49,3 +49,51 @@ function pickAccent(palette: RGB[], background: RGB, foreground: RGB) {
   if (clear.length) return bySaturation(clear)[0];
   return others.reduce((best, c) => (apart(c) > apart(best) ? c : best));
 }
+
+export type RoleName = "surface" | "text" | "accent";
+export const ROLE_NAMES: RoleName[] = ["surface", "text", "accent"];
+/** Palette positions the user picked; a missing role keeps the suggestion. */
+export type RoleChoice = Partial<Record<RoleName, number>>;
+
+const sameColor = (a: RGB, b: RGB) => a.r === b.r && a.g === b.g && a.b === b.b;
+
+/**
+ * The suggested roles with the user's picks laid over them. Picks outside the
+ * palette (it can shrink under a recolor) fall back to the suggestion.
+ */
+export function resolveRoles(palette: RGB[], choice: RoleChoice) {
+  const suggestion = suggestRoles(palette);
+  if (!suggestion) return null;
+  const find = (color: RGB) =>
+    Math.max(
+      0,
+      palette.findIndex((c) => sameColor(c, color)),
+    );
+  const suggested: Record<RoleName, number> = {
+    surface: find(suggestion.background),
+    text: find(suggestion.foreground),
+    accent: find(suggestion.accent),
+  };
+  const indices = { ...suggested };
+  for (const role of ROLE_NAMES) {
+    const pick = choice[role];
+    if (pick !== undefined && pick >= 0 && pick < palette.length)
+      indices[role] = pick;
+  }
+  const surface = palette[indices.surface];
+  const text = palette[indices.text];
+  const accent = palette[indices.accent];
+  return {
+    surface,
+    text,
+    accent,
+    indices,
+    textRatio: contrastRatio(text, surface),
+    accentRatio: contrastRatio(accent, surface),
+    // The best pairing the palette offers, whatever the user picked.
+    bestRatio: suggestion.ratio,
+    changed: ROLE_NAMES.some(
+      (role) => !sameColor(palette[indices[role]], palette[suggested[role]]),
+    ),
+  };
+}

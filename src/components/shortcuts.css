@@ -1,0 +1,57 @@
+.shortcut-sheet {
+  width: min(420px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  margin: auto;
+  padding: 0;
+  border: 1px solid #3c3f41;
+  border-radius: 10px;
+  background: #1a1d1f;
+  color: #f1f0eb;
+  overflow: auto;
+}
+.shortcut-sheet::backdrop {
+  background: #000a;
+}
+.shortcut-body {
+  padding: 24px;
+  display: grid;
+  gap: 14px;
+}
+.shortcut-body h2 {
+  font-size: 22px;
+  letter-spacing: -0.4px;
+}
+.shortcut-body p {
+  font-size: 14px;
+  color: #a5a7a8;
+}
+.shortcut-body dl {
+  display: grid;
+  gap: 2px;
+}
+.shortcut-body dl > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 9px 0;
+  border-bottom: 1px solid #2c3032;
+  font-size: 14px;
+}
+.shortcut-body dd {
+  color: #c4c6c6;
+  text-align: right;
+}
+.shortcut-body kbd {
+  display: inline-block;
+  min-width: 26px;
+  padding: 3px 7px;
+  border: 1px solid #4a4e50;
+  border-radius: 5px;
+  background: #25282a;
+  font-size: 13px;
+  text-align: center;
+}
+.shortcut-body .button {
+  justify-self: end;
+}
