@@ -250,6 +250,22 @@
   }
 }
 
+/* Tablets keep all text at 12px or more. */
+@media (min-width: 581px) and (max-width: 850px) {
+  .cvd-indicator,
+  .cvd-indicator button,
+  .cvd-help,
+  .knowledge-switch-label,
+  .knowledge-check small,
+  .apca-line,
+  .apca-note,
+  .shade-head code,
+  .shade-stop,
+  .shade-chip code {
+    font-size: 12px;
+  }
+}
+
 /* The desktop layout keeps all text at 13px or more. */
 @media (min-width: 851px) {
   .cvd-indicator,
