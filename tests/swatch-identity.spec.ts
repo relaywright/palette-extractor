@@ -112,3 +112,66 @@ test("unlocking one of two identical swatches keeps the other locked", async ({
   const shown = await hexes(page);
   expect(shown.filter((hex) => hex === "#ee5533")).toHaveLength(1);
 });
+
+test("an accent assigned to a color stays on it when the palette is sorted", async ({
+  page,
+  context,
+}) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.goto("/");
+  await ready(page);
+  await expect(role(page, "Accent")).toBeVisible();
+
+  await role(page, "Accent").click();
+  const chips = page
+    .getByRole("group", { name: "Choose a color for Accent" })
+    .locator("button");
+  const current = await roleHex(page, "Accent");
+  const options = await chips.evaluateAll((els) =>
+    els.map((el) => el.getAttribute("aria-label")!),
+  );
+  const pick = options.findIndex((hex) => hex !== current);
+  const picked = options[pick];
+  await chips.nth(pick).click();
+  expect(await roleHex(page, "Accent")).toBe(picked);
+
+  for (const mode of ["hue", "luminance", "original"]) {
+    await page.getByLabel("Sort palette").selectOption(mode);
+    await ready(page);
+    expect(await roleHex(page, "Accent")).toBe(picked);
+    expect(await accentOf(page)).toBe(css(picked));
+  }
+
+  await page
+    .getByRole("group", { name: "Theme export format" })
+    .getByRole("button", { name: "JSON" })
+    .click();
+  await page.getByRole("button", { name: "Export this theme" }).click();
+  await expect(page.getByRole("button", { name: "Copied" })).toBeVisible();
+  const json = JSON.parse(
+    await page.evaluate(() => navigator.clipboard.readText()),
+  );
+  expect(json.accent).toBe(picked);
+});
+
+test("role picks start over when another shared palette of the same length opens", async ({
+  page,
+}) => {
+  await page.goto("/#p=000000.ffffff.cc3333.3366cc");
+  await ready(page);
+  await role(page, "Accent").click();
+  await page
+    .getByRole("group", { name: "Choose a color for Accent" })
+    .locator("button")
+    .first()
+    .click();
+  await expect(page.getByRole("button", { name: "Reset roles" })).toBeVisible();
+
+  await page.evaluate(() => {
+    location.hash = "#p=111111.eeeeee.33cc66.cc9933";
+  });
+  await expect.poll(async () => (await hexes(page))[0]).toBe("#111111");
+  await expect(page.getByRole("button", { name: "Reset roles" })).toHaveCount(
+    0,
+  );
+});

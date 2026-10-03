@@ -492,6 +492,8 @@ export default function App() {
       {activeTab === "context" && (
         <ThemePreview
           palette={colors}
+          swatchIds={swatchIds}
+          extraction={edits.signature}
           image={loaded?.src ?? null}
           copied={copied}
           onCopy={copy}
