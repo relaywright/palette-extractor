@@ -22,6 +22,7 @@ import { usePalette } from "./hooks/usePalette";
 import { useColorSpaceComparison } from "./hooks/useColorSpaceComparison";
 import { useCopyFeedback } from "./hooks/useCopyFeedback";
 import { useSharedPalette } from "./hooks/useSharedPalette";
+import { useShortcuts } from "./hooks/useShortcuts";
 import type { StageResult } from "./components/Stage";
 import { stageUnavailable } from "./stage/handoff";
 
@@ -77,6 +78,12 @@ const ExportPanel = lazy(() =>
   })),
 );
 
+const ShortcutSheet = lazy(() =>
+  import("./components/ShortcutSheet").then((m) => ({
+    default: m.ShortcutSheet,
+  })),
+);
+
 const samples: Source[] = [
   {
     src: "/samples/namib.webp",
@@ -127,6 +134,7 @@ export default function App() {
   const [valueKind, setValueKind] = useState<ValueKind>("hex");
   const [format, setFormat] = useState<ExportFormat>("css");
   const [activeTab, setActiveTab] = useState<Tab>("context");
+  const [sheetOpen, setSheetOpen] = useState(false);
   // A selection lasts while its swatch does, until the next new photo.
   const [selection, setSelection] = useState<{
     id: string;
@@ -251,6 +259,38 @@ export default function App() {
   const showWeights = !!loaded && locked.length === 0;
 
   const copy = (text: string, key: string) => void copyFeedback.copy(text, key);
+  // Each shortcut does what its button does, so the button shows the
+  // confirmation. Returns whether the key was used.
+  useShortcuts((action) => {
+    if (action.type === "help") {
+      setSheetOpen(true);
+      return true;
+    }
+    if (busy) return false;
+    if (action.type === "select") {
+      const swatch = presentation.swatches[action.index];
+      if (!swatch) return false;
+      setSelection({ id: swatch.id, photo: presentation.photo });
+      return true;
+    }
+    if (!selectedSwatch) return false;
+    if (action.type === "copy-value") {
+      const value =
+        valueKind === "hex"
+          ? rgbToHex(selectedSwatch.color)
+          : valueKind === "rgb"
+            ? formatRgb(selectedSwatch.color)
+            : formatHsl(rgbToHsl(selectedSwatch.color));
+      copy(value, `swatch ${selectedSwatch.id} ${value}`);
+    } else if (action.type === "copy-palette")
+      copy(exportPalette(colors, format), "dock");
+    else
+      copy(
+        location.origin + location.pathname + encodePaletteHash(colors),
+        "share",
+      );
+    return true;
+  });
   const saveCard = async () => {
     try {
       const blob = await renderPaletteCard(
@@ -800,6 +840,11 @@ export default function App() {
       <span className="sr-only" role="status" aria-live="polite">
         {notice}
       </span>
+      {sheetOpen && (
+        <Suspense fallback={null}>
+          <ShortcutSheet onClose={() => setSheetOpen(false)} />
+        </Suspense>
+      )}
       {dragging && (
         <div className="drop-overlay">
           <Icon name="upload" size={44} />
