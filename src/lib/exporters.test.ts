@@ -8,6 +8,7 @@ import {
   exportPalette,
 } from "./exporters";
 import { paletteColorNames } from "./names";
+import { shadeScale } from "./scales";
 
 const palette = [
   { r: 46, g: 49, b: 99 },
@@ -98,5 +99,60 @@ describe("exportPalette", () => {
     expect(exportPalette(palette, "scss")).toContain("$palette-1");
     expect(exportPalette(palette, "svg")).toContain("<svg");
     expect(() => JSON.parse(exportPalette(palette, "json"))).not.toThrow();
+  });
+});
+
+describe("default exports stay unchanged when shades are off", () => {
+  it("matches the plain palette output byte for byte", () => {
+    expect(exportPalette(palette, "css")).toBe(
+      ":root {\n  --palette-1: #2e3163;\n  --palette-2: #f0b45e;\n  --palette-3: #3f6f74;\n}",
+    );
+    expect(exportPalette(palette, "tailwind")).toBe(
+      "@theme {\n  --color-palette-1: #2e3163;\n  --color-palette-2: #f0b45e;\n  --color-palette-3: #3f6f74;\n}",
+    );
+    expect(exportPalette(palette, "scss")).toBe(
+      "$palette-1: #2e3163;\n$palette-2: #f0b45e;\n$palette-3: #3f6f74;",
+    );
+    for (const format of ["css", "tailwind", "scss", "json", "svg"] as const)
+      expect(exportPalette(palette, format, {})).toBe(
+        exportPalette(palette, format),
+      );
+    expect(exportPalette(palette, "json")).toBe(toJson(palette));
+    expect(JSON.parse(exportPalette(palette, "json"))[0]).not.toHaveProperty(
+      "shades",
+    );
+  });
+});
+
+describe("shade exports", () => {
+  const shades = palette.map(shadeScale);
+
+  it("keeps the base variables first and names every stop after its color", () => {
+    const css = exportPalette(palette, "css", { shades });
+    const base = exportPalette(palette, "css");
+    expect(css.startsWith(base.slice(0, -2))).toBe(true);
+    expect(css).toContain("--palette-1-50: ");
+    expect(css).toContain("--palette-3-950: ");
+    expect(css.match(/--palette-\d+-\d+:/g)).toHaveLength(3 * 11);
+    expect(css.endsWith("}")).toBe(true);
+  });
+
+  it("emits a Tailwind v4 @theme scale", () => {
+    const tailwind = exportPalette(palette, "tailwind", { shades });
+    expect(tailwind.startsWith("@theme {")).toBe(true);
+    expect(tailwind).toContain(`--color-palette-2-500: ${shades[1][5].hex};`);
+    expect(tailwind.match(/--color-palette-\d+-\d+:/g)).toHaveLength(33);
+  });
+
+  it("adds scales to SCSS and JSON, and leaves SVG alone", () => {
+    expect(exportPalette(palette, "scss", { shades })).toContain(
+      "$palette-1-900: ",
+    );
+    const parsed = JSON.parse(exportPalette(palette, "json", { shades }));
+    expect(Object.keys(parsed[0].shades)).toHaveLength(11);
+    expect(parsed[0].shades["50"]).toBe(shades[0][0].hex);
+    expect(exportPalette(palette, "svg", { shades })).toBe(
+      exportPalette(palette, "svg"),
+    );
   });
 });

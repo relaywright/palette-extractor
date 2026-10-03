@@ -4,6 +4,7 @@ import { type ValueKind } from "./components/Swatch";
 import { SwatchGrid, usePresentation } from "./components/SwatchGrid";
 import { ThemePreview } from "./components/ThemePreview";
 import { Atmosphere } from "./components/Atmosphere";
+import { CvdFilters } from "./components/CvdFilters";
 import { Icon } from "./components/Icon";
 import {
   type RGB,
@@ -816,7 +817,7 @@ export default function App() {
                     setFormat(value);
                     copyFeedback.setCopied(null);
                   }}
-                  onCopy={() => copy(exportPalette(colors, format), "export")}
+                  onCopy={(text) => copy(text, "export")}
                   copied={copied === "export"}
                 />
               )}
@@ -845,6 +846,7 @@ export default function App() {
           <ShortcutSheet onClose={() => setSheetOpen(false)} />
         </Suspense>
       )}
+      <CvdFilters />
       {dragging && (
         <div className="drop-overlay">
           <Icon name="upload" size={44} />
