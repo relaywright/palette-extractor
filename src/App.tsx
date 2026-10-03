@@ -4,6 +4,7 @@ import { type ValueKind } from "./components/Swatch";
 import { SwatchGrid, usePresentation } from "./components/SwatchGrid";
 import { ThemePreview } from "./components/ThemePreview";
 import { Atmosphere } from "./components/Atmosphere";
+import { CvdFilters } from "./components/CvdFilters";
 import { Icon } from "./components/Icon";
 import {
   type RGB,
@@ -795,6 +796,7 @@ export default function App() {
       <span className="sr-only" role="status" aria-live="polite">
         {notice}
       </span>
+      <CvdFilters />
       {dragging && (
         <div className="drop-overlay">
           <Icon name="upload" size={44} />
