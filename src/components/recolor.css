@@ -33,7 +33,7 @@
   border-color: #ffffff80;
 }
 
-/* The recolored photo sits over the original, inside the source frame and
+/* The recolored photo takes the original's place inside the source frame,
    under the stage, so the color-space view still covers it. */
 .recolor-layer {
   position: absolute;
@@ -45,6 +45,12 @@
   pointer-events: none;
 }
 .recolor-layer[data-active="false"] {
+  visibility: hidden;
+}
+/* Once the canvas has painted it is the photo. The original underneath would
+   show through any transparent pixel and composite a second time. */
+.source-frame:has(> .recolor-layer[data-active="true"][data-recolor-draws])
+  > img {
   visibility: hidden;
 }
 
