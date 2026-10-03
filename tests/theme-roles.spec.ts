@@ -35,6 +35,9 @@ const resetButton = (page: Page) =>
 async function open(page: Page) {
   await page.goto("/");
   await ready(page);
+  // On a phone the tools sit in a bottom sheet that starts closed.
+  if ((page.viewportSize()?.width ?? 1440) <= 580)
+    await page.getByRole("tab", { name: "In context" }).click();
   await expect(role(page, "Surface")).toBeVisible();
 }
 
