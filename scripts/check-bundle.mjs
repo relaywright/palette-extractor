@@ -282,7 +282,17 @@ export function checkBundle(
   const stageKey = Object.keys(manifest).find(
     (key) => key === STAGE_SOURCE || manifest[key].src === STAGE_SOURCE,
   );
-  if (stageKey) {
+  // The manifest is shared by every page, but only a page that can load the
+  // Stage answers for its budget. Measuring it from another page would count
+  // the whole app, which that page does not share, against the Stage.
+  const stageFile = stageKey && canonical(manifest[stageKey].file);
+  const stageReachable =
+    stageKey &&
+    (firstLoad.has(stageFile) ||
+      closure(htmlFiles.map((f) => keyOfFile.get(f)).filter(Boolean), {
+        lazy: true,
+      }).has(stageFile));
+  if (stageReachable) {
     if (
       firstLoad.has(canonical(manifest[stageKey].file)) ||
       !manifest[stageKey].isDynamicEntry
@@ -297,7 +307,9 @@ export function checkBundle(
   } else {
     if (requireStage)
       problems.push(
-        `no lazily loaded Stage chunk (${STAGE_SOURCE}) in the manifest`,
+        stageKey
+          ? `${page} never loads the Stage chunk (${STAGE_SOURCE})`
+          : `no lazily loaded Stage chunk (${STAGE_SOURCE}) in the manifest`,
       );
     rows.push({
       name: "Stage chunk",
@@ -311,6 +323,33 @@ export function checkBundle(
   const ok =
     problems.length === 0 && rows.every((row) => row.status !== "fail");
   return { ok, rows, problems };
+}
+
+const kb = (bytes) => `${(bytes / 1024).toFixed(2)} kB`;
+
+/**
+ * The lines to print for one page's result. A failing row always prints its
+ * numbers, and a failure with neither a failing row nor a problem still says
+ * so, so the exit code is never the only sign.
+ */
+export function reportLines({ ok, rows, problems }, name, index) {
+  const lines = [];
+  for (const row of rows) {
+    // Only the entry page has a Stage chunk to report as skipped.
+    if (index > 0 && row.status === "skipped") continue;
+    const note =
+      row.status === "skipped"
+        ? "no Stage chunk yet"
+        : `${kb(row.bytesGzip)} of ${kb(row.limit)}`;
+    const label = index > 0 ? `${name} ${row.name}` : row.name;
+    lines.push(
+      `${row.status.toUpperCase().padEnd(8)}${label.padEnd(index > 0 ? 28 : 16)}${note}`,
+    );
+  }
+  for (const problem of problems) lines.push(`FAIL    ${name}: ${problem}`);
+  if (!ok && !problems.length && !rows.some((row) => row.status === "fail"))
+    lines.push(`FAIL    ${name}: failed without a reported reason`);
+  return lines;
 }
 
 if (
@@ -328,21 +367,8 @@ if (
     }),
   ];
   const names = ["index.html", "how.html"];
-  const kb = (bytes) => `${(bytes / 1024).toFixed(2)} kB`;
-  runs.forEach(({ rows, problems }, i) => {
-    for (const row of rows) {
-      if (i > 0 && row.name === "Stage chunk") continue;
-      const note =
-        row.status === "skipped"
-          ? "no Stage chunk yet"
-          : `${kb(row.bytesGzip)} of ${kb(row.limit)}`;
-      const label = i > 0 ? `${names[i]} ${row.name}` : row.name;
-      console.log(
-        `${row.status.toUpperCase().padEnd(8)}${label.padEnd(i > 0 ? 28 : 16)}${note}`,
-      );
-    }
-    for (const problem of problems)
-      console.error(`FAIL    ${names[i]}: ${problem}`);
+  runs.forEach((run, i) => {
+    for (const line of reportLines(run, names[i], i)) console.log(line);
   });
   const ok = runs.every((run) => run.ok);
   process.exit(ok ? 0 : 1);

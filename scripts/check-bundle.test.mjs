@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
-import { checkBundle } from "./check-bundle.mjs";
+import { checkBundle, reportLines } from "./check-bundle.mjs";
 
 const KB = 1024;
 const budgets = { firstLoad: 20 * KB, stage: 5 * KB };
@@ -567,6 +567,43 @@ describe("checkBundle", () => {
     expect(sharedCounted.ok).toBe(true);
   });
 
+  it("leaves the Stage budget to pages that load the Stage", () => {
+    // Two pages share one manifest. The second never loads the Stage, so the
+    // Stage's imports (which it does not share) are not its to pay for.
+    const dir = stageDist({ stageSize: 2 * KB });
+    writeFileSync(
+      join(dir, "how.html"),
+      `<script type="module" crossorigin src="/assets/how-a.js"></script>`,
+    );
+    const manifest = JSON.parse(
+      readFileSync(join(dir, ".vite", "manifest.json"), "utf8"),
+    );
+    manifest["how.html"] = {
+      file: "assets/how-a.js",
+      src: "how.html",
+      isEntry: true,
+      imports: [],
+      dynamicImports: [],
+    };
+    writeFileSync(
+      join(dir, ".vite", "manifest.json"),
+      JSON.stringify(manifest),
+    );
+    writeFileSync(join(dir, "assets", "how-a.js"), randomBytes(2 * KB));
+    writeFileSync(join(dir, "assets", "analysis.worker-x.js"), randomBytes(KB));
+    const result = checkBundle(dir, budgets, {
+      page: "how.html",
+      workerFile: /^analysis\.worker-[\w-]+\.js$/,
+      requireStage: false,
+    });
+    expect(row(result, "Stage chunk").status).toBe("skipped");
+    expect(result.ok).toBe(true);
+    // The entry page, which does load it, still answers for it.
+    expect(
+      row(checkBundle(dir, { ...budgets, stage: KB }), "Stage chunk").status,
+    ).toBe("fail");
+  });
+
   it("counts chunks the Stage loads lazily in its own budget", () => {
     const result = checkBundle(
       stageDist({ stageSize: 2 * KB, shared: true, lazyGl: true }),
@@ -708,5 +745,37 @@ describe("checkBundle", () => {
     expect(checkBundle(dir, budgets, loose).problems.join()).toContain(
       "index.html is missing",
     );
+  });
+});
+
+describe("reportLines", () => {
+  const failing = {
+    ok: false,
+    rows: [
+      {
+        name: "Stage chunk",
+        bytesGzip: 40 * KB,
+        limit: 15 * KB,
+        status: "fail",
+        files: [],
+      },
+    ],
+    problems: [],
+  };
+
+  it("prints a failing row with its numbers, even on a later page", () => {
+    const lines = reportLines(failing, "how.html", 1).join(" ");
+    expect(lines).toContain("FAIL");
+    expect(lines).toContain("40.00 kB of 15.00 kB");
+  });
+
+  it("never fails without saying why", () => {
+    const silent = { ok: false, rows: [], problems: [] };
+    expect(reportLines(silent, "how.html", 1).join(" ")).toContain("FAIL");
+  });
+
+  it("prints nothing for a page that is fine", () => {
+    const fine = { ok: true, rows: [], problems: [] };
+    expect(reportLines(fine, "how.html", 1)).toEqual([]);
   });
 });
