@@ -7,6 +7,10 @@ export default defineConfig({
   build: {
     // The chunk graph lets the bundle budget check follow imports.
     manifest: true,
+    // Two pages, no router: the app and the explainer each get an entry.
+    rollupOptions: {
+      input: { main: "index.html", how: "how.html" },
+    },
   },
   test: {
     environment: "node",
