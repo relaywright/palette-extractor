@@ -752,7 +752,12 @@ export default function App() {
             tabIndex={0}
           >
             {activeTab === "context" && (
-              <ThemePreview palette={colors} image={loaded?.src ?? null} />
+              <ThemePreview
+                palette={colors}
+                image={loaded?.src ?? null}
+                copied={copied}
+                onCopy={copy}
+              />
             )}
             <Suspense fallback={null}>
               {activeTab === "contrast" && <ContrastPanel palette={colors} />}

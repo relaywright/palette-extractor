@@ -1163,38 +1163,6 @@ select {
   font-size: 11px;
   min-height: 36px;
 }
-.role-list {
-  margin-top: 20px;
-  max-width: 255px;
-  display: grid;
-  gap: 9px;
-}
-.role-list > div {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  font-size: 10px;
-  color: #aaadae;
-}
-.role-list i {
-  width: 11px;
-  height: 11px;
-  border-radius: 3px;
-  border: 1px solid #ffffff28;
-}
-.role-list code {
-  margin-left: auto;
-  font-size: 10px;
-  color: #c1c3c3;
-}
-.panel-intro > .contrast-note {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 9px;
-  margin: 16px 0 0;
-  max-width: 330px;
-}
 .brand-preview {
   padding: 24px 28px 18px;
   border-radius: 7px;
@@ -1876,19 +1844,6 @@ select {
     grid-row: 4;
     justify-self: start;
   }
-  .panel-intro .role-list {
-    grid-column: 2;
-    grid-row: 2/4;
-    width: 100%;
-    margin: 14px 0 0;
-    max-width: none;
-  }
-  .panel-intro > .contrast-note {
-    grid-column: 2;
-    grid-row: 4;
-    font-size: 9px;
-    margin: 0;
-  }
   .brand-body h3 {
     font-size: 48px;
   }
@@ -2171,12 +2126,6 @@ select {
   .panel-intro > .button {
     font-size: 10px;
   }
-  .role-list {
-    display: none !important;
-  }
-  .panel-intro > .contrast-note {
-    margin-top: 15px;
-  }
   .brand-preview {
     padding: 16px;
     border-radius: 6px;
@@ -2197,13 +2146,13 @@ select {
     font-size: 7px;
   }
   .brand-body {
-    gap: 10px;
-    padding: 20px 0;
-    grid-template-columns: 1.1fr 1fr;
+    gap: 22px;
+    padding: 22px 0;
+    grid-template-columns: minmax(0, 1fr);
   }
   .brand-body h3 {
-    font-size: 31px;
-    letter-spacing: -1px;
+    font-size: 40px;
+    letter-spacing: -1.2px;
     margin-top: 10px;
   }
   .brand-kicker {
@@ -2226,38 +2175,26 @@ select {
   }
   .brand-art > img,
   .abstract-art {
-    min-height: 185px;
+    height: 230px;
+    min-height: 0;
   }
   .brand-sticker {
-    width: 78px;
-    height: 78px;
-    font-size: 14px;
+    width: 88px;
+    height: 88px;
+    font-size: 15px;
     bottom: 12px;
-    left: -11px;
+    left: 12px;
   }
   .brand-bottom {
     display: grid;
-    grid-template-columns: auto auto;
-    grid-template-areas:
-      "tagline tagline"
-      "dots study";
-    justify-content: space-between;
-    align-items: center;
-    row-gap: 8px;
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: start;
+    row-gap: 10px;
     letter-spacing: 0;
   }
-  .brand-bottom > span:first-child {
-    grid-area: tagline;
-  }
-  .brand-bottom > div {
-    grid-area: dots;
-  }
-  .brand-bottom > span:last-child {
-    grid-area: study;
-  }
   .brand-bottom i {
-    width: 11px;
-    height: 11px;
+    width: 14px;
+    height: 14px;
   }
   .site-footer {
     flex-direction: column;
@@ -2466,7 +2403,6 @@ select {
   .sample-row > span,
   .panel-intro > .button,
   .dock-actions .button,
-  .panel-intro > .contrast-note,
   .image-caption > span + span,
   .swatch-select,
   .error-banner,
@@ -2537,13 +2473,10 @@ select {
   .swatch-info button code,
   .inspector > span,
   .inspector button code,
-  .role-list > div,
-  .role-list code,
   .sample-row > span,
   .sample-row button span,
   .export-select,
   .text-button,
-  .panel-intro > .contrast-note,
   .panel-intro > .button,
   .button,
   .value-switch button,
