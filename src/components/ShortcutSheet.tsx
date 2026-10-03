@@ -10,6 +10,16 @@ export const SHORTCUTS: { keys: string[]; action: string; joiner?: string }[] =
     { keys: ["Shift", "C"], action: "Copy the whole palette" },
     { keys: ["S"], action: "Copy the share link" },
     { keys: ["?"], action: "Show this list" },
+    {
+      keys: ["Shift", "↑ or ↓"],
+      action: "Lighten or darken the focused swatch",
+    },
+    { keys: ["Shift", "← or →"], action: "Turn the focused swatch's hue" },
+    {
+      keys: ["Shift", "Page Up or Page Down"],
+      action: "Raise or lower the focused swatch's chroma",
+    },
+    { keys: ["Shift", "Home"], action: "Undo the focused swatch's edit" },
   ];
 
 export function ShortcutSheet({ onClose }: { onClose: () => void }) {
