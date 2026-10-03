@@ -27,8 +27,8 @@ export interface PaletteEntry {
 export interface PresentedSwatch extends PaletteEntry {
   /** Stays with the swatch through sorts, recounts and recolors. */
   id: string;
-  /** The swatch survived and its color changed. */
-  retarget: boolean;
+  /** The color the swatch was extracted with; `color` is the one it shows. */
+  extracted: RGB;
 }
 export interface Presentation {
   swatches: PresentedSwatch[];
@@ -43,7 +43,9 @@ const empty: Presentation = { swatches: [], finalColors: false, photo: 0 };
 /**
  * Matches each new palette to the swatches on screen, so surviving swatches
  * keep their IDs. Plans are made against the last committed palette only, so
- * a render React throws away never leaves a half-applied match behind.
+ * a render React throws away never leaves a half-applied match behind. Give
+ * it the extracted colors, not the edited ones: an edit that makes a color
+ * equal its neighbor's must not trade their IDs.
  */
 export function usePresentation(
   sorted: PaletteEntry[],
@@ -80,8 +82,8 @@ export function usePresentation(
       swatches: plan.items.map((item, slot) => ({
         id: item.id,
         color: item.to,
+        extracted: item.to,
         population: sorted[slot].population,
-        retarget: item.retarget,
       })),
       finalColors,
       photo: previous.presentation.photo + (finalColors ? 1 : 0),
@@ -111,6 +113,24 @@ class BeforeUpdate extends Component<{
   render() {
     return this.props.children;
   }
+}
+
+/** The presentation showing `colors` (in swatch order) in place of the extracted ones. */
+export function withColors(
+  presentation: Presentation,
+  colors: RGB[],
+): Presentation {
+  if (
+    presentation.swatches.every((swatch, i) => colors[i] === swatch.extracted)
+  )
+    return presentation;
+  return {
+    ...presentation,
+    swatches: presentation.swatches.map((swatch, i) => ({
+      ...swatch,
+      color: colors[i],
+    })),
+  };
 }
 
 const reducedMotion = () =>
@@ -146,7 +166,7 @@ export function SwatchGrid({
   changedHexes: Set<string>;
   copied: string | null;
   onCopy: (text: string, key: string) => void;
-  onToggleLock: (color: RGB) => void;
+  onToggleLock: (id: string) => void;
   selectedId: string | null;
   onSelect: (id: string) => void;
 }) {
@@ -192,7 +212,7 @@ export function SwatchGrid({
         swatch.id,
         reduced || presentation.finalColors || !running
           ? settledAt(swatch.color)
-          : swatch.retarget
+          : rgbToHex(running.to) !== rgbToHex(swatch.color)
             ? {
                 from: shown.current.get(swatch.id) ?? colorAt(running, now),
                 to: swatch.color,
@@ -327,7 +347,7 @@ export function SwatchGrid({
     >
       <BeforeUpdate watch={presentation} onBefore={measure}>
         {presentation.swatches.map((swatch, i) => {
-          const hex = rgbToHex(swatch.color);
+          const hex = rgbToHex(swatch.extracted);
           return (
             <Swatch
               key={swatch.id}
@@ -337,7 +357,7 @@ export function SwatchGrid({
               locked={lockedSet.has(hex)}
               weight={total ? swatch.population / total : 0}
               name={names[i]}
-              onToggleLock={() => onToggleLock(swatch.color)}
+              onToggleLock={() => onToggleLock(swatch.id)}
               valueKind={valueKind}
               onCopy={onCopy}
               copied={copied}

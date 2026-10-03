@@ -8,6 +8,7 @@ import {
 } from "react";
 import { type RGB, type SortMode, rgbToHex, sortPalette } from "../lib/color";
 import { extractPaletteDetailed, type ExtractionDetail } from "../lib/extract";
+import { toggleLocked } from "../lib/locks";
 import { withoutBoxes } from "../lib/stageGroups";
 import { updatePaletteFavicon } from "../lib/favicon";
 import { oklabDistance, type ColorSpace } from "@relaywright/median-cut";
@@ -171,12 +172,7 @@ export function usePalette({
   const toggleLock = useCallback(
     (color: RGB) => {
       if (busy || !source) return;
-      const hex = rgbToHex(color);
-      setLocked((prev) =>
-        prev.some((c) => rgbToHex(c) === hex)
-          ? prev.filter((c) => rgbToHex(c) !== hex)
-          : [...prev, color],
-      );
+      setLocked((prev) => toggleLocked(prev, color));
     },
     [busy, source],
   );
