@@ -78,8 +78,9 @@ const ExportPanel = lazy(() =>
   })),
 );
 
-// The camera only loads once it is used.
+// The camera and the phone's tool sheet only load once they are used.
 const CameraCapture = lazy(() => import("./components/CameraCapture"));
+const BottomSheet = lazy(() => import("./components/BottomSheet"));
 
 const samples: Source[] = [
   {
@@ -131,6 +132,8 @@ export default function App() {
   const [valueKind, setValueKind] = useState<ValueKind>("hex");
   const [format, setFormat] = useState<ExportFormat>("css");
   const [activeTab, setActiveTab] = useState<Tab>("context");
+  // On phones the chosen tool opens as a sheet; it starts closed.
+  const [sheetOpen, setSheetOpen] = useState(false);
   const [camera, setCamera] = useState<"off" | CameraStatus>("off");
   // A selection lasts while its swatch does, until the next new photo.
   const [selection, setSelection] = useState<{
@@ -260,6 +263,7 @@ export default function App() {
     : nearestColorName(inspected);
   const showWeights = !!loaded && locked.length === 0;
 
+  const panelShown = !phone || sheetOpen;
   const copy = (text: string, key: string) => void copyFeedback.copy(text, key);
   const saveCard = async () => {
     try {
@@ -800,10 +804,14 @@ export default function App() {
                 key={tab.id}
                 role="tab"
                 id={`tab-${tab.id}`}
-                aria-selected={activeTab === tab.id}
+                aria-selected={panelShown && activeTab === tab.id}
                 aria-controls={`panel-${tab.id}`}
                 tabIndex={activeTab === tab.id ? 0 : -1}
-                onClick={() => setActiveTab(tab.id)}
+                onClick={() => {
+                  // On a phone, choosing the open tab again closes its sheet.
+                  setSheetOpen(!(phone && sheetOpen && activeTab === tab.id));
+                  setActiveTab(tab.id);
+                }}
                 onKeyDown={(e) => {
                   const next =
                     e.key === "ArrowRight"
@@ -830,7 +838,20 @@ export default function App() {
               </button>
             ))}
           </div>
-          {toolPanel}
+          {phone ? (
+            <Suspense fallback={null}>
+              <BottomSheet
+                open={sheetOpen}
+                title={tabs.find((tab) => tab.id === activeTab)!.label}
+                onClose={() => setSheetOpen(false)}
+                returnFocus={() => document.getElementById(`tab-${activeTab}`)}
+              >
+                {toolPanel}
+              </BottomSheet>
+            </Suspense>
+          ) : (
+            toolPanel
+          )}
         </section>
       </main>
       <footer className="site-footer">

@@ -208,6 +208,18 @@ async function scan(page: Page) {
     .flatMap((result) => result.nodes.map((node) => String(node.target[0])));
   const overImages: string[] = [];
   for (const selector of unsettled) {
+    // With the phone's sheet open, the page behind it is covered, and
+    // anything scrolled out of the sheet's own view is not on screen.
+    const hidden = await page.evaluate((selector) => {
+      const el = document.querySelector(selector)!;
+      if (!document.querySelector('.sheet[data-open="true"]')) return false;
+      const scroller = el.closest(".sheet .tool-panel");
+      if (!scroller) return !el.closest(".sheet");
+      const box = el.getBoundingClientRect();
+      const view = scroller.getBoundingClientRect();
+      return box.bottom <= view.top || box.top >= view.bottom;
+    }, selector);
+    if (hidden) continue;
     const element = await elementName(page, selector);
     if (onGlow.has(element)) {
       expect(
