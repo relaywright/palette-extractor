@@ -27,6 +27,7 @@ import { usePaletteEdits } from "./hooks/usePaletteEdits";
 import { SwatchEditsContext } from "./recolor/swatchEdits";
 import type { StageResult } from "./components/Stage";
 import { stageUnavailable } from "./stage/handoff";
+import type { CameraStatus } from "./hooks/useCamera";
 
 const loadStage = () => import("./components/Stage");
 const Stage = lazy(loadStage);
@@ -91,6 +92,9 @@ const loadNudge = () => import("./recolor/nudge");
 const AdjustPanel = lazy(() =>
   import("./components/AdjustPanel").then((m) => ({ default: m.AdjustPanel })),
 );
+// The camera and the phone's tool sheet only load once they are used.
+const CameraCapture = lazy(() => import("./components/CameraCapture"));
+const BottomSheet = lazy(() => import("./components/BottomSheet"));
 
 const samples: Source[] = [
   {
@@ -143,6 +147,9 @@ export default function App() {
   const [format, setFormat] = useState<ExportFormat>("css");
   const [activeTab, setActiveTab] = useState<Tab>("context");
   const [sheetOpen, setSheetOpen] = useState(false);
+  // On phones the chosen tool opens as a sheet; it starts closed.
+  const [toolSheetOpen, setToolSheetOpen] = useState(false);
+  const [camera, setCamera] = useState<"off" | CameraStatus>("off");
   // A selection lasts while its swatch does, until the next new photo.
   const [selection, setSelection] = useState<{
     id: string;
@@ -164,6 +171,7 @@ export default function App() {
   const palette = usePalette({
     source: imageSource.source,
     urlBusy: imageSource.urlBusy,
+    live: camera === "live",
     initialColors: shared,
     setLoaded: imageSource.setLoaded,
     setError: imageSource.setError,
@@ -202,6 +210,10 @@ export default function App() {
     [sorted, colors, extractedColors],
   );
   const [adjusting, setAdjusting] = useState(false);
+  // Any other photo (upload, drop, paste, URL, freeze) ends the camera.
+  useEffect(() => setCamera("off"), [source]);
+  const liveCamera = camera === "live";
+  const canCamera = !!navigator.mediaDevices?.getUserMedia;
   const hero = useRef<HTMLImageElement>(null);
   const stageHost = useRef<HTMLDivElement>(null);
   const [stageReady, setStageReady] = useState(false);
@@ -326,6 +338,7 @@ export default function App() {
     palette.toggleLock(slot >= 0 ? extractedColors[slot] : color);
   };
 
+  const panelShown = !phone || toolSheetOpen;
   const copy = (text: string, key: string) => void copyFeedback.copy(text, key);
   // Each shortcut does what its button does, so the button shows the
   // confirmation. Returns whether the key was used.
@@ -384,6 +397,20 @@ export default function App() {
     >
       <Icon name="upload" /> Upload image
     </button>
+  );
+  const captureActions = (
+    <div className="capture-actions">
+      {uploadButton}
+      {canCamera && (
+        <button
+          className="button secondary camera-main"
+          disabled={camera !== "off"}
+          onClick={() => setCamera("starting")}
+        >
+          <Icon name="image" /> Use camera
+        </button>
+      )}
+    </div>
   );
   const sourceControls = (
     <>
@@ -446,6 +473,47 @@ export default function App() {
     </>
   );
 
+  const toolPanel = (
+    <div
+      role="tabpanel"
+      id={`panel-${activeTab}`}
+      aria-labelledby={`tab-${activeTab}`}
+      className="tool-panel"
+      tabIndex={0}
+    >
+      {activeTab === "context" && (
+        <ThemePreview
+          palette={colors}
+          image={loaded?.src ?? null}
+          copied={copied}
+          onCopy={copy}
+        />
+      )}
+      <Suspense fallback={null}>
+        {activeTab === "contrast" && <ContrastPanel palette={colors} />}
+        {activeTab === "algorithm" && (
+          <PixelSpace
+            samples={palette.detail.samples}
+            steps={palette.detail.steps}
+            colorSpace={palette.detailColorSpace}
+          />
+        )}
+        {activeTab === "export" && (
+          <ExportPanel
+            palette={colors}
+            format={format}
+            onFormatChange={(value) => {
+              setFormat(value);
+              copyFeedback.setCopied(null);
+            }}
+            onCopy={(text) => copy(text, "export")}
+            copied={copied === "export"}
+          />
+        )}
+      </Suspense>
+    </div>
+  );
+
   return (
     <div className="app-shell">
       <a className="skip-link" href="#workspace">
@@ -487,7 +555,7 @@ export default function App() {
             </h1>
             <p>Find the colors worth keeping. Make something with them.</p>
           </div>
-          {!phone && uploadButton}
+          {!phone && captureActions}
         </section>
         <input
           ref={fileInput}
@@ -609,18 +677,44 @@ export default function App() {
                   </Suspense>
                 )}
               </div>
-              {busy && (
+              {busy && camera === "off" && (
                 <span className="processing-badge">
                   <i /> Finding your colors…
                 </span>
               )}
+              {camera !== "off" && (
+                <Suspense fallback={null}>
+                  <CameraCapture
+                    request={{
+                      count: Math.max(1, count - locked.length),
+                      exclude: locked,
+                      colorSpace,
+                    }}
+                    onStatus={setCamera}
+                    onFrame={palette.applyLive}
+                    onFreeze={(photo) => {
+                      setCamera("off");
+                      imageSource.loadFile(photo);
+                    }}
+                    onClose={(message) => {
+                      setCamera("off");
+                      if (message) copyFeedback.setNotice(message);
+                    }}
+                    onUpload={() => fileInput.current?.click()}
+                  />
+                </Suspense>
+              )}
               <div className="image-caption">
                 <span>
-                  {loaded?.name ??
-                    (shared && !source ? "Shared palette" : source?.name)}
+                  {liveCamera
+                    ? "Live camera"
+                    : (loaded?.name ??
+                      (shared && !source ? "Shared palette" : source?.name))}
                 </span>
                 <span>
-                  {loaded?.credit ? (
+                  {liveCamera ? (
+                    "Tap to freeze"
+                  ) : loaded?.credit ? (
                     <a href={loaded.creditUrl} target="_blank" rel="noreferrer">
                       Photo / {loaded.credit}
                     </a>
@@ -781,7 +875,7 @@ export default function App() {
         </div>
         {phone && (
           <div className="phone-source-controls">
-            {uploadButton}
+            {captureActions}
             {sourceControls}
           </div>
         )}
@@ -853,10 +947,16 @@ export default function App() {
                 key={tab.id}
                 role="tab"
                 id={`tab-${tab.id}`}
-                aria-selected={activeTab === tab.id}
+                aria-selected={panelShown && activeTab === tab.id}
                 aria-controls={`panel-${tab.id}`}
                 tabIndex={activeTab === tab.id ? 0 : -1}
-                onClick={() => setActiveTab(tab.id)}
+                onClick={() => {
+                  // On a phone, choosing the open tab again closes its sheet.
+                  setToolSheetOpen(
+                    !(phone && toolSheetOpen && activeTab === tab.id),
+                  );
+                  setActiveTab(tab.id);
+                }}
                 onKeyDown={(e) => {
                   const next =
                     e.key === "ArrowRight"
@@ -883,44 +983,20 @@ export default function App() {
               </button>
             ))}
           </div>
-          <div
-            role="tabpanel"
-            id={`panel-${activeTab}`}
-            aria-labelledby={`tab-${activeTab}`}
-            className="tool-panel"
-            tabIndex={0}
-          >
-            {activeTab === "context" && (
-              <ThemePreview
-                palette={colors}
-                image={loaded?.src ?? null}
-                copied={copied}
-                onCopy={copy}
-              />
-            )}
+          {phone ? (
             <Suspense fallback={null}>
-              {activeTab === "contrast" && <ContrastPanel palette={colors} />}
-              {activeTab === "algorithm" && (
-                <PixelSpace
-                  samples={palette.detail.samples}
-                  steps={palette.detail.steps}
-                  colorSpace={palette.detailColorSpace}
-                />
-              )}
-              {activeTab === "export" && (
-                <ExportPanel
-                  palette={colors}
-                  format={format}
-                  onFormatChange={(value) => {
-                    setFormat(value);
-                    copyFeedback.setCopied(null);
-                  }}
-                  onCopy={(text) => copy(text, "export")}
-                  copied={copied === "export"}
-                />
-              )}
+              <BottomSheet
+                open={toolSheetOpen}
+                title={tabs.find((tab) => tab.id === activeTab)!.label}
+                onClose={() => setToolSheetOpen(false)}
+                returnFocus={() => document.getElementById(`tab-${activeTab}`)}
+              >
+                {toolPanel}
+              </BottomSheet>
             </Suspense>
-          </div>
+          ) : (
+            toolPanel
+          )}
         </section>
       </main>
       <footer className="site-footer">

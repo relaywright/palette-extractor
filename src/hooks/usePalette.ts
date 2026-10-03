@@ -22,6 +22,8 @@ const SAME_COLOR_DISTANCE = 0.03;
 interface UsePaletteOptions {
   source: Source | null;
   urlBusy: boolean;
+  /** The camera is feeding frames, so the chosen source stays untouched. */
+  live?: boolean;
   initialColors: RGB[] | null;
   setLoaded: (source: Source) => void;
   setError: (message: string | null) => void;
@@ -35,6 +37,7 @@ interface UsePaletteOptions {
 export function usePalette({
   source,
   urlBusy,
+  live = false,
   initialColors,
   setLoaded,
   setError,
@@ -61,7 +64,7 @@ export function usePalette({
   const highlightTimeout = useRef<number>();
 
   useEffect(() => {
-    if (!source) return;
+    if (!source || live) return;
     const controller = new AbortController();
     setExtracting(true);
     const remaining = count - locked.length;
@@ -148,7 +151,7 @@ export function usePalette({
       }
     });
     return () => controller.abort();
-  }, [source, count, locked, colorSpace]);
+  }, [source, count, locked, colorSpace, live]);
 
   useEffect(() => () => window.clearTimeout(highlightTimeout.current), []);
 
@@ -197,8 +200,42 @@ export function usePalette({
     previousUnlocked.current = [];
   }, []);
 
+  // A camera frame replaces the palette in place. The photo is unchanged, so
+  // the swatches melt to the new colors, and a frame that looks the same as
+  // the last one is dropped so a steady scene stays still.
+  const applyLive = useCallback(
+    (next: ExtractionDetail) => {
+      const remaining = count - locked.length;
+      const unlocked = remaining > 0 ? next.colors.slice(0, remaining) : [];
+      const steady = (entries: { color: RGB }[]) =>
+        entries.length === unlocked.length &&
+        entries.every(
+          ({ color }, i) => oklabDistance(color, unlocked[i].color) < 0.015,
+        );
+      startTransition(() => {
+        setDetail((prev) => {
+          const shown = prev.colors.slice(locked.length);
+          if (prev.samples === null && steady(shown)) return prev;
+          return {
+            colors: [
+              ...locked.map((color) => ({ color, population: 0 })),
+              ...unlocked,
+            ],
+            pixels: [],
+            steps: [],
+            samples: null,
+          };
+        });
+        setDetailColorSpace(colorSpace);
+        setExtracting(false);
+      });
+    },
+    [count, locked, colorSpace],
+  );
+
   return {
     detail,
+    applyLive,
     locked,
     setLocked,
     count,

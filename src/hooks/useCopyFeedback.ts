@@ -20,6 +20,8 @@ export function useCopyFeedback({ setError }: UseCopyFeedbackOptions) {
   const copy = async (text: string, key: string) => {
     if (await copyText(text)) {
       setCopied(key);
+      // A short tick where the device supports it; other browsers skip it.
+      navigator.vibrate?.(10);
       setNotice("Copied to clipboard.");
       window.clearTimeout(copyTimer.current);
       copyTimer.current = window.setTimeout(() => setCopied(null), 1800);

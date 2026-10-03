@@ -1,0 +1,169 @@
+/* Upload and camera buttons side by side, wherever the source controls sit. */
+.capture-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.capture-actions > .button {
+  white-space: nowrap;
+}
+.camera-main {
+  height: 45px;
+  padding: 12px 17px;
+}
+
+/* On phones the tool tabs are a bar fixed to the bottom of the screen, and
+   the chosen panel rises from it as a sheet. Wider screens keep the tabs
+   and panel in the page. */
+@media (max-width: 580px) {
+  :root {
+    --tab-bar: 60px;
+  }
+  /* Focused and scrolled-to controls stop short of the fixed tab bar. */
+  html {
+    scroll-padding-bottom: calc(var(--tab-bar) + 16px);
+  }
+  .app-shell {
+    position: relative;
+    padding-bottom: calc(var(--tab-bar) + env(safe-area-inset-bottom, 0px));
+  }
+  .capture-actions > .button {
+    flex: 1 1 0;
+    width: auto;
+    height: 43px;
+    padding-inline: 10px;
+  }
+  .workbench {
+    padding-top: 0;
+  }
+  .workbench-nav {
+    position: absolute;
+    inset: auto 0 0 0;
+    z-index: 30;
+    box-sizing: border-box;
+    height: calc(var(--tab-bar) + env(safe-area-inset-bottom, 0px));
+    padding: 0 8px env(safe-area-inset-bottom, 0px);
+    gap: 0;
+    justify-content: space-around;
+    background: #181b1d;
+    border-top: 1px solid #343638;
+    border-bottom: 0;
+  }
+  /* Pinned at the very spot it rests when the page is scrolled to its end,
+     so it never jumps as the page scrolls. */
+  html[data-tab-bar="on"] .workbench-nav {
+    position: fixed;
+  }
+  .workbench-nav > button {
+    flex: 1 1 0;
+    min-width: 0;
+    height: calc(var(--tab-bar) - 1px);
+    min-height: 0;
+    margin: 0;
+    padding: 6px 2px;
+    gap: 4px;
+    border-bottom: 0;
+    border-top: 2px solid transparent;
+    font-size: 12px;
+    line-height: 1.15;
+  }
+  .workbench-nav > button[aria-selected="true"] {
+    border-top-color: #e1c6a4;
+  }
+
+  .sheet-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 28;
+    background: #0009;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s;
+  }
+  .sheet-scrim[data-open="true"] {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .sheet {
+    position: fixed;
+    inset: auto 0 calc(var(--tab-bar) + env(safe-area-inset-bottom, 0px)) 0;
+    z-index: 29;
+    display: flex;
+    flex-direction: column;
+    max-height: min(78vh, calc(100dvh - 120px));
+    background: #1a1d1f;
+    border: 1px solid #343638;
+    border-bottom: 0;
+    border-radius: 16px 16px 0 0;
+    box-shadow: 0 -12px 40px #0009;
+    transform: translateY(calc(100% + 24px));
+    visibility: hidden;
+    transition:
+      transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1),
+      visibility 0s 0.28s;
+  }
+  .sheet[data-open="true"] {
+    transform: none;
+    visibility: visible;
+    transition:
+      transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1),
+      visibility 0s;
+  }
+  .sheet.is-dragging {
+    transition: none;
+  }
+  .sheet-head {
+    position: relative;
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 52px;
+    padding: 8px 8px 0 20px;
+  }
+  /* The whole header is the grab area; the title lets touches through. */
+  .sheet-handle {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    justify-content: center;
+    padding-top: 8px;
+    touch-action: none;
+    cursor: grab;
+  }
+  .sheet-handle i {
+    width: 40px;
+    height: 4px;
+    border-radius: 2px;
+    background: #5f6366;
+  }
+  .sheet-title {
+    position: relative;
+    pointer-events: none;
+    font-size: 13px;
+    color: #f1f0eb;
+  }
+  .sheet-close {
+    position: relative;
+    width: 44px;
+    height: 44px;
+    color: #d6d7d6;
+  }
+  .sheet .tool-panel {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 4px 20px 24px;
+  }
+  .sheet .tool-panel:focus-visible {
+    outline-offset: -3px;
+  }
+}
+@media (max-width: 580px) and (prefers-reduced-motion: reduce) {
+  .sheet,
+  .sheet[data-open="true"],
+  .sheet-scrim {
+    transition: none;
+  }
+}

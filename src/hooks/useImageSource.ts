@@ -82,6 +82,25 @@ export function useImageSource({
     [chooseSource],
   );
 
+  // The installed app opens at ?shared=1 after Android's share sheet hands it
+  // a photo, which the service worker parked in Cache Storage.
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (!params.has("shared")) return;
+    params.delete("shared");
+    const rest = params.toString();
+    history.replaceState(
+      null,
+      "",
+      location.pathname + (rest ? `?${rest}` : "") + location.hash,
+    );
+    const missing = () =>
+      setError("The shared photo did not arrive. Try uploading it instead.");
+    void import("../lib/shared-image")
+      .then((m) => m.takeSharedImage())
+      .then((file) => (file ? loadFile(file) : missing()), missing);
+  }, [loadFile]);
+
   const loadUrl = useCallback(
     async (value: string) => {
       const id = ++loadRequest.current;
