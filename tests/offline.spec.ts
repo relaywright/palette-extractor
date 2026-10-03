@@ -38,6 +38,21 @@ test("a second load with the network off renders the app and extracts the sample
   await expect(page.locator(".swatch")).toHaveCount(7);
 });
 
+test("visiting the explainer never replaces the app's saved page", async ({
+  page,
+  context,
+}) => {
+  await page.goto("/");
+  await ready(page);
+  await worker(page);
+  await page.goto("/how.html");
+  await expect(page).toHaveTitle(/How median cut works/);
+  await context.setOffline(true);
+  await page.goto("/");
+  await expect(page.locator("#workspace")).toBeAttached({ timeout: 20000 });
+  await expect(page).not.toHaveTitle(/How median cut works/);
+});
+
 test("the saved copy holds the shell, the worker, lazy chunks, fonts and samples", async ({
   page,
 }) => {

@@ -83,10 +83,18 @@ self.addEventListener("activate", (event) => {
   );
 });
 
+// Each page is saved under its own path (the app and the explainer are
+// separate pages); a query such as ?shared=1 does not make a new copy.
+function pageKey(url) {
+  const path = new URL(url).pathname;
+  return path === "/index.html" ? "/" : path;
+}
+
 async function openPage(event) {
   const cache = await caches.open(SHELL);
+  const key = pageKey(event.request.url);
   const update = fetch(event.request).then((response) => {
-    if (response.ok) cache.put("/", response.clone());
+    if (response.ok && !response.redirected) cache.put(key, response.clone());
     return response;
   });
   // The update keeps running after a slow network hands over to the cache.
@@ -100,7 +108,7 @@ async function openPage(event) {
   } catch (error) {
     console.warn("Page request failed, using the saved copy", error);
   }
-  return (await cache.match("/")) ?? update;
+  return (await cache.match(key)) ?? (await cache.match("/")) ?? update;
 }
 
 async function trimBuildFiles(cache) {
