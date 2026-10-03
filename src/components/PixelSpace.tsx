@@ -305,6 +305,9 @@ export function PixelSpace({ samples, steps, colorSpace }: PixelSpaceProps) {
           The actual sampled pixels from your image, mapped into
           three-dimensional color space. Watch them become a palette.
         </p>
+        <a className="button quiet" href="/how.html">
+          Read how median cut works
+        </a>
         <ol className="step-list">
           <li>
             <b>1</b>
