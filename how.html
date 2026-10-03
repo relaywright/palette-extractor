@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Watch median cut turn a photo into a palette: sampling, color space, every split, why cuts land in gaps, and how the final colors are chosen. Runs on your own photo, in your browser."
+    />
+    <meta name="theme-color" content="#111315" />
+    <meta property="og:type" content="article" />
+    <meta property="og:site_name" content="Palette Extractor" />
+    <meta property="og:title" content="How median cut works" />
+    <meta
+      property="og:description"
+      content="An interactive walk through the color quantizer behind Palette Extractor, running on your own photo."
+    />
+    <meta
+      property="og:image"
+      content="https://palette-extractor.relaywright.workers.dev/og-image.jpg"
+    />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <title>How median cut works</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='2' y='4' width='7' height='24' rx='1.5' fill='%232e3163'/%3E%3Crect x='10.5' y='4' width='7' height='24' rx='1.5' fill='%23c96f8e'/%3E%3Crect x='19' y='4' width='7' height='24' rx='1.5' fill='%23f0b45e'/%3E%3Crect x='27' y='4' width='3' height='24' rx='1.5' fill='%233f6f74'/%3E%3C/svg%3E"
+    />
+    <link
+      rel="preload"
+      href="/fonts/schibsted-latin.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/how/main.tsx"></script>
+  </body>
+</html>

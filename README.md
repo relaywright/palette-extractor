@@ -25,6 +25,8 @@
 
 ![The How it works panel: sampled pixels rotating in an RGB cube while median-cut boxes split into the final palette](.github/how-it-works.webp)
 
+[Read how median cut works](https://palette-extractor.relaywright.workers.dev/how.html), an interactive walkthrough that runs the quantizer on your own photo.
+
 ```mermaid
 flowchart LR
   A["Image<br/>file, drop, paste, or URL"] --> B["Canvas<br/>longest edge 320 px,<br/>transparent pixels skipped"]
