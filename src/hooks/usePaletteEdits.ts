@@ -10,8 +10,9 @@ export interface PaletteEdit {
 }
 
 /**
- * Edits are keyed by the extracted color's hex, so they stay with their
- * swatch through sorts. `signature` names the extraction they belong to.
+ * Edits are keyed by swatch ID, so they stay with their swatch through sorts
+ * and apart from another swatch that repeats its color. `signature` names the
+ * extraction they belong to.
  */
 export interface EditState {
   signature: string;
@@ -27,7 +28,7 @@ export type EditUpdate =
   | ((previous: PaletteEdit | null) => PaletteEdit | null);
 
 export type EditAction =
-  | { type: "set"; signature: string; hex: string; edit: EditUpdate }
+  | { type: "set"; signature: string; id: string; edit: EditUpdate }
   | { type: "reset"; signature: string };
 
 export const emptyEdits = (signature: string): EditState => ({
@@ -49,29 +50,31 @@ export function editsReducer(state: EditState, action: EditAction): EditState {
       return { ...base, edits: {} };
     case "set": {
       const edits = { ...base.edits };
-      const { hex } = action;
+      const { id } = action;
       const edit =
         typeof action.edit === "function"
-          ? action.edit(edits[hex] ?? null)
+          ? action.edit(edits[id] ?? null)
           : action.edit;
-      if (edit) edits[hex] = edit;
-      else delete edits[hex];
+      if (edit) edits[id] = edit;
+      else delete edits[id];
       return { ...base, edits, touched: base.touched || !!edit };
     }
   }
 }
 
 /**
- * The extracted palette with each edit applied. A swatch whose edit changes
- * nothing visible keeps its extracted color object, and the same array comes
- * back when no swatch changed, so `colors[i] !== extracted[i]` means edited.
+ * The extracted palette with each edit applied; `ids` names each color's
+ * swatch. A swatch whose edit changes nothing visible keeps its extracted
+ * color object, and the same array comes back when no swatch changed, so
+ * `colors[i] !== extracted[i]` means edited.
  */
 export function editedPalette(
   extracted: RGB[],
+  ids: string[],
   edits: Record<string, PaletteEdit>,
 ): RGB[] {
-  const next = extracted.map((color) => {
-    const edit = edits[rgbToHex(color)];
+  const next = extracted.map((color, i) => {
+    const edit = edits[ids[i]];
     return edit && rgbToHex(edit.color) !== rgbToHex(color)
       ? edit.color
       : color;
@@ -81,12 +84,16 @@ export function editedPalette(
 
 /**
  * The edit layer between the extracted palette and everything that shows
- * or exports it. `colors` is the palette to display, in the order of
+ * or exports it. `ids` names the swatch of each extracted color, from the
+ * unedited extraction. `colors` is the palette to display, in the order of
  * `extracted`; `current` is each swatch's stored edit, if it has one.
  * Edits drop when the photo or the extracted set changes.
  */
-export function usePaletteEdits(extracted: RGB[], photo: string) {
-  const hexes = useMemo(() => extracted.map(rgbToHex), [extracted]);
+export function usePaletteEdits(
+  extracted: RGB[],
+  ids: string[],
+  photo: string,
+) {
   const signature = paletteSignature(extracted, photo);
   const [stored, dispatch] = useReducer(editsReducer, signature, emptyEdits);
   const stale = stored.signature !== signature;
@@ -97,16 +104,16 @@ export function usePaletteEdits(extracted: RGB[], photo: string) {
   const state = stale ? emptyEdits(signature) : stored;
 
   const colors = useMemo(
-    () => editedPalette(extracted, state.edits),
-    [extracted, state.edits],
+    () => editedPalette(extracted, ids, state.edits),
+    [extracted, ids, state.edits],
   );
 
   const setEdit = useCallback(
     (index: number, edit: EditUpdate) => {
-      if (hexes[index])
-        dispatch({ type: "set", signature, hex: hexes[index], edit });
+      if (ids[index])
+        dispatch({ type: "set", signature, id: ids[index], edit });
     },
-    [hexes, signature],
+    [ids, signature],
   );
   const resetAll = useCallback(
     () => dispatch({ type: "reset", signature }),
@@ -115,8 +122,9 @@ export function usePaletteEdits(extracted: RGB[], photo: string) {
 
   return {
     colors,
-    current: hexes.map((hex) => state.edits[hex] ?? null),
+    current: ids.map((id) => state.edits[id] ?? null),
     touched: state.touched,
+    signature,
     setEdit,
     resetAll,
   };

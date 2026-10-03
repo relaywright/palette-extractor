@@ -67,6 +67,28 @@ test("a color recolored to match the swatch after it keeps its edit and its sele
   expect(await selectedIndex(page)).toBe(0);
 });
 
+test("adjusting one of two identical swatches leaves the other as it was", async ({
+  page,
+}) => {
+  await page.goto(REPEATED);
+  await ready(page);
+  await swatchSelect(page, 1).click();
+  await page.locator(".swatch.selected .adjust-button").click();
+  await page.getByLabel("Hue").fill("200");
+
+  await expect.poll(async () => (await hexes(page))[1]).not.toBe("#ee5533");
+  expect(await hexes(page)).toEqual([
+    "#ee5533",
+    (await hexes(page))[1],
+    "#336699",
+    "#99cc33",
+  ]);
+  await expect(page.locator(".edit-marker")).toHaveCount(1);
+  await expect(
+    page.locator(".swatch").nth(1).locator(".edit-marker"),
+  ).toHaveCount(1);
+});
+
 test("unlocking one of two identical swatches keeps the other locked", async ({
   page,
 }) => {

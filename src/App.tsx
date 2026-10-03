@@ -207,7 +207,11 @@ export default function App() {
   // one swatch's identity onto another. Everything below that shows or
   // exports the palette reads the edited colors.
   const identity = usePresentation(sorted, loaded, lockedSet);
-  const edits = usePaletteEdits(extractedColors, loaded?.src ?? "");
+  const swatchIds = useMemo(
+    () => identity.swatches.map((swatch) => swatch.id),
+    [identity],
+  );
+  const edits = usePaletteEdits(extractedColors, swatchIds, loaded?.src ?? "");
   const colors = edits.colors;
   const shownSorted = useMemo(
     () =>
