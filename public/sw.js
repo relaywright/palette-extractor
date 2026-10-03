@@ -125,7 +125,11 @@ async function trimBuildFiles(cache) {
 async function cacheFirst(event) {
   const { request } = event;
   const cache = await caches.open(SHELL);
-  const hit = await cache.match(request);
+  // Module scripts and stylesheets are requested with CORS, so they send an
+  // Origin header the saved copies were fetched without. A server that answers
+  // "Vary: Origin" would make every one of them a miss; these files are named
+  // by their content or never change, so Vary has nothing to say about them.
+  const hit = await cache.match(request, { ignoreVary: true });
   if (hit) return hit;
   const response = await fetch(request);
   if (response.ok)

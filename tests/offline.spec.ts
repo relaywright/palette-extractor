@@ -212,6 +212,9 @@ test.describe("against a site that deploys a new version", () => {
       res.writeHead(200, {
         "Content-Type": types[extname(target)] ?? "application/octet-stream",
         "Cache-Control": "max-age=3600",
+        // Some servers vary on Origin; module scripts send one, the saved
+        // copies were fetched without.
+        Vary: "Origin",
       });
       res.end(body);
     });
@@ -222,6 +225,35 @@ test.describe("against a site that deploys a new version", () => {
     origin = `http://127.0.0.1:${typeof address === "object" ? address!.port : 0}`;
   });
   test.afterAll(() => new Promise((resolve) => server.close(resolve)));
+
+  test("a script is found offline when the server varies on Origin", async ({
+    page,
+    context,
+  }) => {
+    version = "one";
+    await page.goto(origin);
+    await ready(page);
+    await worker(page);
+    const chunk = await page.evaluate(async () => {
+      const keys = await (await caches.open("palette-shell-v1")).keys();
+      return keys
+        .map((request) => new URL(request.url).pathname)
+        .find((path) => /^\/assets\/ExportPanel-.*\.js$/.test(path));
+    });
+    expect(chunk).toBeTruthy();
+    await context.setOffline(true);
+    // A module import is a CORS request, so it carries an Origin header that
+    // the saved copy was fetched without.
+    const loaded = await page.evaluate(async (path) => {
+      try {
+        await new Function("path", "return import(path)")(path);
+        return true;
+      } catch {
+        return false;
+      }
+    }, chunk);
+    expect(loaded).toBe(true);
+  });
 
   test("the next online load shows it, even with the old page saved", async ({
     page,
