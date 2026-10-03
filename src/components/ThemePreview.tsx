@@ -1,6 +1,12 @@
 import { lazy, Suspense, useState } from "react";
 import { type RGB, rgbToHex, labelColorFor } from "../lib/color";
-import { type RoleChoice, type RoleName, resolveRoles } from "../lib/theme";
+import {
+  type RolePicks,
+  type RoleName,
+  choiceFromPicks,
+  picksFromChoice,
+  resolveRoles,
+} from "../lib/theme";
 import { Icon } from "./Icon";
 import { formatRatio } from "../lib/contrast";
 import "./theme-preview.css";
@@ -14,30 +20,38 @@ const levelOf = (ratio: number) =>
 
 export function ThemePreview({
   palette,
+  swatchIds,
+  extraction,
   image,
   copied,
   onCopy,
 }: {
   palette: RGB[];
+  /** The swatch at each palette position, which picks follow. */
+  swatchIds: string[];
+  /** Names the extraction: a new one starts the picks over. */
+  extraction: string;
   image: string | null;
   copied: string | null;
   onCopy: (text: string, key: string) => void;
 }) {
-  // Picks are palette positions. They survive a recolor (same length, same
-  // photo) and start over when the palette or the photo changes.
-  const scope = `${palette.length} ${image}`;
-  const [picks, setPicks] = useState<{ scope: string; choice: RoleChoice }>({
+  // Picks belong to swatches, so they survive a sort and a recolor, and
+  // start over when the photo or the extracted colors change.
+  const scope = extraction;
+  const [picks, setPicks] = useState<{ scope: string; picks: RolePicks }>({
     scope,
-    choice: {},
+    picks: {},
   });
-  if (picks.scope !== scope) setPicks({ scope, choice: {} });
+  if (picks.scope !== scope) setPicks({ scope, picks: {} });
   const roles = resolveRoles(
     palette,
-    picks.scope === scope ? picks.choice : {},
+    picks.scope === scope ? choiceFromPicks(swatchIds, picks.picks) : {},
   );
   if (!roles) return null;
+  const choose = (choice: Partial<Record<RoleName, number>>) =>
+    setPicks({ scope, picks: picksFromChoice(swatchIds, choice) });
   const assign = (role: RoleName, index: number) =>
-    setPicks({ scope, choice: { ...roles.indices, [role]: index } });
+    choose({ ...roles.indices, [role]: index });
   if (roles.bestRatio < 4.5)
     return (
       <section className="context-panel" aria-label="Palette in context">
@@ -77,13 +91,10 @@ export function ThemePreview({
         <button
           className="button secondary"
           onClick={() =>
-            setPicks({
-              scope,
-              choice: {
-                ...roles.indices,
-                surface: roles.indices.text,
-                text: roles.indices.surface,
-              },
+            choose({
+              ...roles.indices,
+              surface: roles.indices.text,
+              text: roles.indices.surface,
             })
           }
         >
@@ -103,7 +114,7 @@ export function ThemePreview({
               palette={palette}
               roles={roles}
               onAssign={assign}
-              onReset={() => setPicks({ scope, choice: {} })}
+              onReset={() => setPicks({ scope, picks: {} })}
               copied={copied}
               onCopy={onCopy}
             />

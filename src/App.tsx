@@ -1,7 +1,11 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import sunset from "./assets/sample.svg";
 import { type ValueKind } from "./components/Swatch";
-import { SwatchGrid, usePresentation } from "./components/SwatchGrid";
+import {
+  SwatchGrid,
+  usePresentation,
+  withColors,
+} from "./components/SwatchGrid";
 import { ThemePreview } from "./components/ThemePreview";
 import { Atmosphere } from "./components/Atmosphere";
 import { CvdFilters } from "./components/CvdFilters";
@@ -199,8 +203,15 @@ export default function App() {
     changedHexes,
   );
   const { copied, notice } = copyFeedback;
-  // Everything below that shows or exports the palette reads the edited one.
-  const edits = usePaletteEdits(extractedColors, loaded?.src ?? "");
+  // Swatch identities come from the extracted colors, so an edit never moves
+  // one swatch's identity onto another. Everything below that shows or
+  // exports the palette reads the edited colors.
+  const identity = usePresentation(sorted, loaded, lockedSet);
+  const swatchIds = useMemo(
+    () => identity.swatches.map((swatch) => swatch.id),
+    [identity],
+  );
+  const edits = usePaletteEdits(extractedColors, swatchIds, loaded?.src ?? "");
   const colors = edits.colors;
   const shownSorted = useMemo(
     () =>
@@ -272,13 +283,10 @@ export default function App() {
     [loaded, palette.detail, palette.detailColorSpace, sorted],
   );
 
-  // A pinned color stays pinned after it is edited.
-  const shownLocked = new Set(
-    sorted.flatMap((entry, i) =>
-      lockedSet.has(rgbToHex(entry.color)) ? [rgbToHex(colors[i])] : [],
-    ),
+  const presentation = useMemo(
+    () => withColors(identity, colors),
+    [identity, colors],
   );
-  const presentation = usePresentation(shownSorted, loaded, shownLocked);
   // The inspector falls back to the first swatch; the swatches must agree.
   const selectedSwatch =
     (selection?.photo === presentation.photo &&
@@ -331,11 +339,11 @@ export default function App() {
         ?.focus(),
     );
   };
-  // The grid reports the color it shows; a pin belongs to the extracted one.
-  const toggleLock = (color: RGB) => {
-    const shown = rgbToHex(color);
-    const slot = colors.findIndex((c) => rgbToHex(c) === shown);
-    palette.toggleLock(slot >= 0 ? extractedColors[slot] : color);
+  // A pin belongs to the swatch's extracted color, which stays put when the
+  // swatch is edited.
+  const toggleLock = (id: string) => {
+    const slot = slotOf(id);
+    if (slot >= 0) palette.toggleLock(extractedColors[slot]);
   };
 
   const panelShown = !phone || toolSheetOpen;
@@ -484,6 +492,8 @@ export default function App() {
       {activeTab === "context" && (
         <ThemePreview
           palette={colors}
+          swatchIds={swatchIds}
+          extraction={edits.signature}
           image={loaded?.src ?? null}
           copied={copied}
           onCopy={copy}
@@ -766,7 +776,7 @@ export default function App() {
                   valueKind={valueKind}
                   total={total}
                   showWeights={showWeights}
-                  lockedSet={shownLocked}
+                  lockedSet={lockedSet}
                   canLock={!!source}
                   changedHexes={changedHexes}
                   copied={copied}

@@ -54,6 +54,30 @@ export type RoleName = "surface" | "text" | "accent";
 export const ROLE_NAMES: RoleName[] = ["surface", "text", "accent"];
 /** Palette positions the user picked; a missing role keeps the suggestion. */
 export type RoleChoice = Partial<Record<RoleName, number>>;
+/**
+ * The same picks by swatch ID, which is what survives sorting and recoloring.
+ * `ids` lists the swatch at each palette position.
+ */
+export type RolePicks = Partial<Record<RoleName, string>>;
+
+/** The positions of the picked swatches; a swatch no longer shown is dropped. */
+export function choiceFromPicks(ids: string[], picks: RolePicks): RoleChoice {
+  const choice: RoleChoice = {};
+  for (const role of ROLE_NAMES) {
+    const at = picks[role] === undefined ? -1 : ids.indexOf(picks[role]);
+    if (at >= 0) choice[role] = at;
+  }
+  return choice;
+}
+
+export function picksFromChoice(ids: string[], choice: RoleChoice): RolePicks {
+  const picks: RolePicks = {};
+  for (const role of ROLE_NAMES) {
+    const id = ids[choice[role] ?? -1];
+    if (id !== undefined) picks[role] = id;
+  }
+  return picks;
+}
 
 const sameColor = (a: RGB, b: RGB) => a.r === b.r && a.g === b.g && a.b === b.b;
 
