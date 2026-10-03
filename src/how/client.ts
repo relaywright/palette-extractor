@@ -18,6 +18,8 @@ export class AnalysisClient {
   private worker: Worker;
   private next = 0;
   private pending = new Map<number, Pending>();
+  /** Set once the worker is gone; later requests reject with it at once. */
+  private closed: Error | null = null;
 
   constructor() {
     this.worker = new Worker(new URL("./analysis.worker.ts", import.meta.url), {
@@ -30,12 +32,15 @@ export class AnalysisClient {
       if ("error" in event.data) waiting.reject(new Error(event.data.error));
       else waiting.resolve(event.data);
     };
-    this.worker.onerror = () => this.fail("The analysis could not start.");
+    this.worker.onerror = () => this.close("The analysis could not start.");
+    this.worker.onmessageerror = () =>
+      this.close("The analysis returned something unreadable.");
   }
 
-  private fail(message: string) {
-    for (const waiting of this.pending.values())
-      waiting.reject(new Error(message));
+  private close(message: string) {
+    this.closed ??= new Error(message);
+    this.worker.terminate();
+    for (const waiting of this.pending.values()) waiting.reject(this.closed);
     this.pending.clear();
   }
 
@@ -44,9 +49,18 @@ export class AnalysisClient {
     transfer: Transferable[] = [],
   ) {
     return new Promise<Reply>((resolve, reject) => {
+      if (this.closed) {
+        reject(this.closed);
+        return;
+      }
       const id = ++this.next;
       this.pending.set(id, { resolve, reject });
-      this.worker.postMessage({ ...request, id }, transfer);
+      try {
+        this.worker.postMessage({ ...request, id }, transfer);
+      } catch (error) {
+        this.pending.delete(id);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
     });
   }
 
@@ -85,8 +99,7 @@ export class AnalysisClient {
   }
 
   dispose() {
-    this.worker.terminate();
-    this.fail("The analysis was cancelled.");
+    this.close("The analysis was cancelled.");
   }
 }
 

@@ -403,6 +403,64 @@ test.describe("the explainer page", () => {
     await expect(figure(page, "snap")).toBeVisible();
   });
 
+  test("after a failed upload the kept photo still answers a new color count", async ({
+    page,
+  }) => {
+    const errors = watchErrors(page);
+    await open(page);
+    // A 1 by 1 PNG with no opaque pixel.
+    const clear = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=",
+      "base64",
+    );
+    await page.locator('input[type="file"]').setInputFiles({
+      name: "clear.png",
+      mimeType: "image/png",
+      buffer: clear,
+    });
+    await expect(page.locator(".how-photo-status")).toContainText(
+      "fully transparent",
+    );
+    await expect(page.locator("main.how-page")).toHaveAttribute(
+      "data-photo",
+      "Golden dunes",
+    );
+
+    // 11 was never computed for this photo, so it needs the worker.
+    const result = page.locator("[data-reproject-colors]");
+    await page
+      .locator('[data-stepper="colors"]')
+      .getByRole("slider")
+      .fill("11");
+    await expect(result).toHaveAttribute("data-reproject-colors", "11", {
+      timeout: 5000,
+    });
+    await expect(page.locator('[data-readout="reproject"]')).not.toContainText(
+      "could not be updated",
+    );
+    expect(errors).toEqual([]);
+  });
+
+  test("the last photo chosen wins when choices overlap", async ({ page }) => {
+    const errors = watchErrors(page);
+    await open(page);
+    await page.getByRole("button", { name: "Forest floor" }).click();
+    await page.getByRole("button", { name: "Golden dunes" }).click();
+    await expect(page.locator(".how-photo-status")).toContainText(
+      "Showing Golden dunes",
+    );
+    // A slower, older analysis must not land on top of it afterwards.
+    await page.waitForTimeout(1500);
+    await expect(page.locator("main.how-page")).toHaveAttribute(
+      "data-photo",
+      "Golden dunes",
+    );
+    await expect(page.locator(".how-photo-status")).toContainText(
+      "Showing Golden dunes",
+    );
+    expect(errors).toEqual([]);
+  });
+
   test("the app links to it", async ({ page }) => {
     await page.goto("/");
     await page.getByRole("tab", { name: "How it works" }).click();
