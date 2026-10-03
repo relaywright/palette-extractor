@@ -47,7 +47,7 @@ function headings(page: Page) {
   });
 }
 
-for (const width of [390, 580, 581, 699, 700, 768, 850, 851, 1440])
+for (const width of [390, 580, 581, 699, 700, 759, 760, 768, 850, 851, 1440])
   test(`the color space switch sits beside Replace at ${width}px`, async ({
     page,
   }) => {
@@ -100,8 +100,8 @@ for (const width of [390, 580, 581, 699, 700, 768, 850, 851, 1440])
     expect(room.needed).toBeLessThanOrEqual(room.available);
   });
 
-for (const width of [390, 580, 581, 699, 700, 768, 850, 851, 1440])
-  test(`the workspace uses ${width < 700 ? "one column" : "two aligned columns"} at ${width}px`, async ({
+for (const width of [390, 580, 581, 699, 700, 759, 760, 768, 850, 851, 1440])
+  test(`the workspace uses ${width < 760 ? "one column" : "two aligned columns"} at ${width}px`, async ({
     page,
   }) => {
     await page.setViewportSize({ width, height: 900 });
@@ -138,7 +138,7 @@ for (const width of [390, 580, 581, 699, 700, 768, 850, 851, 1440])
     expect(
       Math.abs(layout.paletteCenters[0] - layout.paletteCenters[1]),
     ).toBeLessThanOrEqual(1);
-    if (width < 700) {
+    if (width < 760) {
       expect(layout.palette.top).toBeGreaterThan(layout.source.bottom);
     } else {
       expect(layout.palette.left).toBeGreaterThan(layout.source.right);
