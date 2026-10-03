@@ -2643,3 +2643,89 @@ select {
     grid-column: 1 / -1;
   }
 }
+
+/* Tablet type floor. Between the phone and desktop layouts nothing renders
+   under 12px. Each selector repeats the specificity of the rule it replaces
+   and wins by coming last. */
+@media (min-width: 581px) and (max-width: 850px) {
+  .panel-intro > p,
+  .contrast-panel .contrast-heading p,
+  .site-footer,
+  .brand-body p,
+  .palette-hint,
+  .workbench-nav > button,
+  .source-actions > span,
+  .brand-bottom,
+  .swatch-info button code,
+  .swatch-grid.format-rgb .swatch-info button code,
+  .swatch-grid.format-hsl .swatch-info button code,
+  .sample-row button span,
+  .swatch-info > span,
+  .brand-kicker,
+  code,
+  kbd,
+  samp,
+  pre,
+  .brand-cta,
+  .sample-row > span,
+  .panel-intro > .button,
+  .dock-actions .button,
+  .panel-intro > .contrast-note,
+  .image-caption > span + span,
+  .image-caption a,
+  .swatch-select,
+  .error-banner,
+  .image-caption,
+  .header-right > a,
+  .inspector > span,
+  .inspector button,
+  .text-button,
+  .source-actions .text-button,
+  .brand-nav > span,
+  .count-control,
+  .count-control output,
+  .sort-label,
+  .colorspace-switch,
+  .colorspace-switch label,
+  .contrast-legend,
+  .contrast-sample > span:last-child,
+  .contrast-meta,
+  .section-label h2 > span,
+  .section-label h2 b,
+  .step-list li,
+  .step-list b,
+  .animation-controls button,
+  .cube-topline,
+  .cube-bottomline,
+  .export-select,
+  .code-heading,
+  .code-window pre,
+  .value-switch button,
+  .color-comparison,
+  .stage-hint,
+  .processing-badge,
+  .role-list > div,
+  .role-list code,
+  .algorithm-panel .algorithm-stats span,
+  .algorithm-panel .algorithm-scrubber,
+  .button,
+  select {
+    font-size: 12px;
+  }
+  /* Room for the taller 12px labels, so the palette still arrives without
+     moving what is below it. */
+  .swatch-grid {
+    min-height: 371px;
+  }
+}
+
+/* At 12px the source row (title, color space switch, Replace) needs about
+   340px, so two columns start at 760px instead of 700px. */
+@media (min-width: 700px) and (max-width: 759px) {
+  .workspace {
+    grid-template-columns: 1fr;
+  }
+  .source-panel > .section-label {
+    min-height: 35px;
+  }
+}
