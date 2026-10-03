@@ -1,0 +1,178 @@
+/* Where a swatch's color lives: the photo dims except its sampled pixels. */
+.photo-dim {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+  transition: opacity 0.16s ease-out;
+}
+.photo-dim[data-dim="off"] {
+  opacity: 0;
+}
+.photo-note {
+  position: absolute;
+  left: 14px;
+  bottom: 54px;
+  max-width: calc(100% - 28px);
+  border-radius: 30px;
+  padding: 7px 12px;
+  background: #16191b;
+  color: #d9dad6;
+  font-size: 11px;
+  line-height: 1.35;
+  pointer-events: none;
+}
+.photo-note[hidden],
+.photo-note:empty {
+  display: none;
+}
+
+/* Loupe and pick: the layer over the photo that reads one pixel. */
+.photo-pick {
+  position: absolute;
+  inset: 0;
+  pointer-events: auto;
+  cursor: crosshair;
+  touch-action: pan-y;
+  border-radius: 8px;
+}
+.photo-pick[data-picking] {
+  touch-action: none;
+}
+.photo-pick:focus-visible {
+  outline-offset: -4px;
+}
+.loupe {
+  position: absolute;
+  width: 88px;
+  pointer-events: none;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #16191b;
+  border: 2px solid #f4f4f1;
+  box-shadow: 0 4px 18px #0006;
+}
+.loupe canvas {
+  display: block;
+  width: 84px;
+  height: 84px;
+  image-rendering: pixelated;
+}
+.loupe-cross {
+  position: absolute;
+  left: 50%;
+  top: 42px;
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
+  box-sizing: border-box;
+  border: 1px solid #fff;
+  outline: 1px solid #000;
+}
+.loupe-hex {
+  display: block;
+  padding: 3px 0 4px;
+  text-align: center;
+  color: #f4f4f1;
+  font-size: 11px;
+  letter-spacing: 0.03em;
+}
+.pick-ring {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  margin: -11px 0 0 -11px;
+  box-sizing: border-box;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  outline: 2px solid #000;
+  pointer-events: none;
+}
+.pick-toggle {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 30px;
+  border: 1px solid #ffffff1a;
+  background: #16191b;
+  color: #d9dad6;
+  font-size: 12px;
+  box-shadow: 0 2px 12px #0003;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.pick-toggle[aria-pressed="true"] {
+  background: #f4f4f1;
+  color: #16191b;
+}
+.pick-toggle:focus-visible {
+  outline: 2px solid #f4f4f1;
+  outline-offset: 2px;
+}
+
+/* The swatch that owns the pixel under the loupe. */
+.swatch[data-picked] .swatch-color {
+  outline: 2px solid #f4f4f1;
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .photo-dim {
+    transition: none;
+  }
+}
+
+/* RGB and Perceptual palettes, matching colors in one column. */
+.space-compare {
+  margin-top: 12px;
+}
+.space-compare-note,
+.space-compare-key {
+  font-size: 12px;
+  color: #a1a3a4;
+}
+.space-compare-note {
+  margin-bottom: 8px;
+}
+.space-compare-key {
+  margin-top: 6px;
+}
+.space-compare-rows {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 3px;
+}
+.space-compare-rows th {
+  width: 76px;
+  padding-right: 6px;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 500;
+  color: #d9dad6;
+}
+.space-compare-rows td {
+  padding: 0;
+  height: 30px;
+}
+.space-compare-rows td i {
+  display: block;
+  height: 100%;
+  border-radius: 5px;
+}
+.space-compare-rows td[data-state="changed"] i {
+  outline: 2px dashed #f4f4f1;
+  outline-offset: 1px;
+}
+.space-compare-rows td[data-state="empty"] i {
+  border: 1px dashed #ffffff40;
+}
+@media (max-width: 580px) {
+  .space-compare-rows th {
+    width: 62px;
+  }
+}

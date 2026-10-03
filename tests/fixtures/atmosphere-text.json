@@ -61,6 +61,11 @@
       "layers": []
     },
     {
+      "element": "div.workspace > section.palette-panel > button.text-button",
+      "ink": "rgb(184, 186, 187)",
+      "layers": []
+    },
+    {
       "element": "div.workspace > section.palette-panel > p.palette-hint",
       "ink": "rgb(161, 163, 164)",
       "layers": []

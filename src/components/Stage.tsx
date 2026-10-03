@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type RefObject } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { createPortal } from "react-dom";
 import type { ColorSpace, SplitStep } from "@relaywright/median-cut";
 import type { Source } from "../hooks/useImageSource";
@@ -68,10 +74,13 @@ export default function Stage({
   result,
   host,
   hero,
+  overlay,
 }: {
   result: StageResult;
   host: RefObject<HTMLDivElement>;
   hero: RefObject<HTMLImageElement>;
+  /** What the Photo view shows over the photo, given the swatch in focus. */
+  overlay?: (focus: number) => ReactNode;
 }) {
   const surface = useRef<HTMLDivElement>(null);
   const wire = useRef<HTMLCanvasElement>(null);
@@ -96,6 +105,8 @@ export default function Stage({
   const [view, setView] = useState(session.view);
   const viewRef = useRef(view);
   viewRef.current = view;
+  // The swatch in focus, for the photo's dim; the cloud reads it directly.
+  const [swatchFocus, setSwatchFocus] = useState(-1);
 
   useEffect(() => {
     const parent = host.current!,
@@ -425,6 +436,7 @@ export default function Stage({
           });
           parent.dataset.stageFocus = String(index);
         } else delete parent.dataset.stageFocus;
+        setSwatchFocus(index);
       }
       // Without a running loop to ease it, the change shows at once.
       const goal = focused >= 0 ? 1 : 0;
@@ -444,8 +456,15 @@ export default function Stage({
       hovered = swatchAt(event.target);
       show();
     };
+    // A finger leaves a swatch the moment a tap ends, so a tapped swatch
+    // stays in focus until the next tap lands elsewhere.
+    const tapAway = (event: PointerEvent) => {
+      if (event.pointerType !== "touch" || swatchAt(event.target) >= 0) return;
+      hovered = -1;
+      show();
+    };
     const out = (event: PointerEvent) => {
-      if (event.relatedTarget) return;
+      if (event.pointerType === "touch" || event.relatedTarget) return;
       hovered = -1;
       show();
     };
@@ -650,6 +669,7 @@ export default function Stage({
     document.addEventListener("visibilitychange", visibility);
     document.addEventListener("pointerover", hover);
     document.addEventListener("pointerout", out);
+    document.addEventListener("pointerdown", tapAway);
     document.addEventListener("focusin", focusIn);
     document.addEventListener("focusout", focusOut);
     document.addEventListener("keyup", keyUp);
@@ -681,10 +701,12 @@ export default function Stage({
       document.removeEventListener("visibilitychange", visibility);
       document.removeEventListener("pointerover", hover);
       document.removeEventListener("pointerout", out);
+      document.removeEventListener("pointerdown", tapAway);
       document.removeEventListener("focusin", focusIn);
       document.removeEventListener("focusout", focusOut);
       document.removeEventListener("keyup", keyUp);
       delete parent.dataset.stageFocus;
+      setSwatchFocus(-1);
       photo.style.opacity = "";
     };
   }, [result, host, hero]);
@@ -724,6 +746,7 @@ export default function Stage({
       <span className="stage-hint" ref={hint} aria-hidden="true" hidden>
         Drag to turn
       </span>
+      {view === "photo" && overlay?.(swatchFocus)}
       <div
         className="value-switch stage-switch"
         role="group"
