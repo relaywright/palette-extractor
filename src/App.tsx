@@ -77,6 +77,9 @@ const ExportPanel = lazy(() =>
   })),
 );
 
+const SpaceCompare = lazy(() => import("./components/SpaceCompare"));
+const PhotoTools = lazy(() => import("./components/PhotoTools"));
+
 const samples: Source[] = [
   {
     src: "/samples/namib.webp",
@@ -127,6 +130,7 @@ export default function App() {
   const [valueKind, setValueKind] = useState<ValueKind>("hex");
   const [format, setFormat] = useState<ExportFormat>("css");
   const [activeTab, setActiveTab] = useState<Tab>("context");
+  const [compareOpen, setCompareOpen] = useState(false);
   // A selection lasts while its swatch does, until the next new photo.
   const [selection, setSelection] = useState<{
     id: string;
@@ -484,7 +488,22 @@ export default function App() {
               >
                 {stageReady && stageResult && (
                   <Suspense fallback={null}>
-                    <Stage result={stageResult} host={stageHost} hero={hero} />
+                    <Stage
+                      result={stageResult}
+                      host={stageHost}
+                      hero={hero}
+                      overlay={(focus) => (
+                        <Suspense fallback={null}>
+                          <PhotoTools
+                            samples={stageResult.samples}
+                            swatches={stageResult.swatches}
+                            focus={focus}
+                            hero={hero}
+                            onPin={palette.pinColor}
+                          />
+                        </Suspense>
+                      )}
+                    />
                   </Suspense>
                 )}
               </div>
@@ -638,6 +657,27 @@ export default function App() {
                 colors.length < count &&
                 "This image has fewer distinct colors than requested."}
             </p>
+            {loaded && (
+              <button
+                className="text-button"
+                aria-expanded={compareOpen}
+                aria-controls="space-compare"
+                onClick={() => setCompareOpen(!compareOpen)}
+              >
+                {compareOpen ? "Hide comparison" : "Compare RGB and Perceptual"}
+              </button>
+            )}
+            {loaded && compareOpen && (
+              <div id="space-compare">
+                <Suspense fallback={null}>
+                  <SpaceCompare
+                    src={loaded.src}
+                    locked={locked}
+                    count={count}
+                  />
+                </Suspense>
+              </div>
+            )}
           </section>
         </div>
         {phone && (

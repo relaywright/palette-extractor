@@ -61,6 +61,11 @@
       "layers": []
     },
     {
+      "element": "div.workspace > section.palette-panel > button.text-button",
+      "ink": "rgb(184, 186, 187)",
+      "layers": []
+    },
+    {
       "element": "div.workspace > section.palette-panel > p.palette-hint",
       "ink": "rgb(161, 163, 164)",
       "layers": []
@@ -149,6 +154,11 @@
     },
     {
       "element": "div.swatch-motion > div.swatch-info > button",
+      "color": "rgb(228, 195, 151)",
+      "alpha": 1
+    },
+    {
+      "element": "div.workspace > section.palette-panel > button.text-button",
       "color": "rgb(228, 195, 151)",
       "alpha": 1
     },
