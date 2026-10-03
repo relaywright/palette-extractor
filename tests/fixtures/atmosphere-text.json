@@ -138,6 +138,11 @@
       "alpha": 1
     },
     {
+      "element": "div.phone-source-controls > div.capture-actions > button.button",
+      "color": "rgb(228, 195, 151)",
+      "alpha": 1
+    },
+    {
       "element": "div.sample-row > div > button.active",
       "color": "rgb(228, 195, 151)",
       "alpha": 1
@@ -153,12 +158,7 @@
       "alpha": 1
     },
     {
-      "element": "main > div.phone-source-controls > button.button",
-      "color": "rgb(228, 195, 151)",
-      "alpha": 1
-    },
-    {
-      "element": "main > section.intro > button.button",
+      "element": "section.intro > div.capture-actions > button.button",
       "color": "rgb(228, 195, 151)",
       "alpha": 1
     },

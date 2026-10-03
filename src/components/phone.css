@@ -1,0 +1,22 @@
+/* Upload and camera buttons side by side, wherever the source controls sit. */
+.capture-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.capture-actions > .button {
+  white-space: nowrap;
+}
+.camera-main {
+  height: 45px;
+  padding: 12px 17px;
+}
+
+@media (max-width: 580px) {
+  .capture-actions > .button {
+    flex: 1 1 0;
+    width: auto;
+    height: 43px;
+    padding-inline: 10px;
+  }
+}
