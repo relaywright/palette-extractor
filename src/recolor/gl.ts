@@ -114,10 +114,48 @@ function compile(gl: WebGL2RenderingContext, type: number, source: string) {
 // bounds a huge window.
 const MAX_SIDE = 2400;
 
+/** The photo is no wider or taller than the largest texture the GPU takes. */
+export function fitsTexture(
+  gl: Pick<WebGL2RenderingContext, "getParameter" | "MAX_TEXTURE_SIZE">,
+  image: Pick<HTMLImageElement, "naturalWidth" | "naturalHeight">,
+) {
+  const limit = gl.getParameter(gl.MAX_TEXTURE_SIZE) as number;
+  return image.naturalWidth <= limit && image.naturalHeight <= limit;
+}
+
+/**
+ * Uploads the photo to the bound texture. False when it was refused: a
+ * photo that cannot be read throws, but one the GPU cannot take only sets
+ * an error flag, and the texture would draw as an empty one.
+ */
+export function uploadTexture(
+  gl: Pick<
+    WebGL2RenderingContext,
+    | "getError"
+    | "NO_ERROR"
+    | "texImage2D"
+    | "TEXTURE_2D"
+    | "RGBA"
+    | "UNSIGNED_BYTE"
+  >,
+  image: HTMLImageElement,
+) {
+  // Flags left by earlier calls are not this upload's.
+  for (let i = 0; i < 8 && gl.getError() !== gl.NO_ERROR; i++);
+  try {
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+  } catch {
+    return false;
+  }
+  return gl.getError() === gl.NO_ERROR;
+}
+
 /**
  * Recolors the photo on the GPU at the size it is shown. Null when the
- * browser has no WebGL2 or the photo cannot be uploaded (an image from
- * another origin without CORS), which sends the caller to the 2D fallback.
+ * browser has no WebGL2, the photo is larger than a texture can be, or it
+ * cannot be uploaded (an image from another origin without CORS), which
+ * sends the caller to the 2D fallback. That one works from a 320 px copy,
+ * so a panorama of any size is fine there.
  */
 export function createGlRenderer(
   canvas: HTMLCanvasElement,
@@ -130,7 +168,7 @@ export function createGlRenderer(
     preserveDrawingBuffer: true,
     antialias: false,
   });
-  if (!gl) return null;
+  if (!gl || !fitsTexture(gl, image)) return null;
   const program = gl.createProgram()!;
   const shaders = [
     compile(gl, gl.VERTEX_SHADER, VERTEX),
@@ -144,9 +182,10 @@ export function createGlRenderer(
 
   const texture = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D, texture);
-  try {
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
-  } catch {
+  if (!uploadTexture(gl, image)) {
+    gl.deleteTexture(texture);
+    gl.deleteProgram(program);
+    for (const shader of shaders) gl.deleteShader(shader);
     return null;
   }
   gl.generateMipmap(gl.TEXTURE_2D);
