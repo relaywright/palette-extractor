@@ -68,13 +68,13 @@ function fileOfReference(ref) {
 export function checkBundle(
   distDir,
   budgets = DEFAULT_BUDGETS,
-  { requireStage = true } = {},
+  { requireStage = true, page = "index.html", workerFile = WORKER_FILE } = {},
 ) {
   const problems = [];
   const rows = [];
-  const htmlPath = join(distDir, "index.html");
+  const htmlPath = join(distDir, page);
   const manifestPath = join(distDir, ".vite", "manifest.json");
-  if (!existsSync(htmlPath)) problems.push("index.html is missing");
+  if (!existsSync(htmlPath)) problems.push(`${page} is missing`);
   if (!existsSync(manifestPath))
     problems.push(".vite/manifest.json is missing (build.manifest must be on)");
   if (problems.length) return { ok: false, rows, problems };
@@ -112,10 +112,10 @@ export function checkBundle(
     (tag) => attr(tag, "type")?.trim().toLowerCase() === "module",
   );
   const scripts = modules.map((tag) => attr(tag, "src")).filter(Boolean);
-  if (!scripts.length) problems.push("index.html has no module script");
+  if (!scripts.length) problems.push(`${page} has no module script`);
   if (scripts.length < modules.length)
     problems.push(
-      "index.html has an inline module script; its imports cannot be measured",
+      `${page} has an inline module script; its imports cannot be measured`,
     );
   const preloads = tagsOf(html, "link")
     .filter((tag) =>
@@ -131,7 +131,7 @@ export function checkBundle(
     const file = fileOfReference(ref);
     if (file === null)
       problems.push(
-        `${ref} is loaded by index.html but cannot be mapped to a file in this build`,
+        `${ref} is loaded by ${page} but cannot be mapped to a file in this build`,
       );
     else htmlFiles.push(file);
   }
@@ -140,7 +140,7 @@ export function checkBundle(
   for (const file of htmlFiles)
     if (!keyOfFile.has(file))
       problems.push(
-        `${file} is loaded by index.html but not in the manifest, so its imports cannot be measured`,
+        `${file} is loaded by ${page} but not in the manifest, so its imports cannot be measured`,
       );
   const firstLoad = new Set(htmlFiles);
   for (const file of closure(
@@ -150,11 +150,11 @@ export function checkBundle(
 
   const assetsDir = join(distDir, "assets");
   const workers = existsSync(assetsDir)
-    ? readdirSync(assetsDir).filter((name) => WORKER_FILE.test(name))
+    ? readdirSync(assetsDir).filter((name) => workerFile.test(name))
     : [];
   if (workers.length !== 1)
     problems.push(
-      `expected exactly one quantize worker file, found ${workers.length}`,
+      `expected exactly one startup worker file, found ${workers.length}`,
     );
   for (const name of workers) firstLoad.add(`assets/${name}`);
 
@@ -221,17 +221,33 @@ if (
   process.argv[1] &&
   resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 ) {
-  const { ok, rows, problems } = checkBundle(resolve("dist"));
+  const dist = resolve("dist");
+  const runs = [
+    checkBundle(dist),
+    // The explainer page has no Stage and its own worker.
+    checkBundle(dist, DEFAULT_BUDGETS, {
+      page: "how.html",
+      workerFile: /^analysis\.worker-[\w-]+\.js$/,
+      requireStage: false,
+    }),
+  ];
+  const names = ["index.html", "how.html"];
   const kb = (bytes) => `${(bytes / 1024).toFixed(2)} kB`;
-  for (const row of rows) {
-    const note =
-      row.status === "skipped"
-        ? "no Stage chunk yet"
-        : `${kb(row.bytesGzip)} of ${kb(row.limit)}`;
-    console.log(
-      `${row.status.toUpperCase().padEnd(8)}${row.name.padEnd(16)}${note}`,
-    );
-  }
-  for (const problem of problems) console.error(`FAIL    ${problem}`);
+  runs.forEach(({ rows, problems }, i) => {
+    for (const row of rows) {
+      if (i > 0 && row.name === "Stage chunk") continue;
+      const note =
+        row.status === "skipped"
+          ? "no Stage chunk yet"
+          : `${kb(row.bytesGzip)} of ${kb(row.limit)}`;
+      const label = i > 0 ? `${names[i]} ${row.name}` : row.name;
+      console.log(
+        `${row.status.toUpperCase().padEnd(8)}${label.padEnd(i > 0 ? 28 : 16)}${note}`,
+      );
+    }
+    for (const problem of problems)
+      console.error(`FAIL    ${names[i]}: ${problem}`);
+  });
+  const ok = runs.every((run) => run.ok);
   process.exit(ok ? 0 : 1);
 }

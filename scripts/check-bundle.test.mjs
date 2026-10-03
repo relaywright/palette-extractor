@@ -543,4 +543,44 @@ describe("checkBundle", () => {
       ).ok,
     ).toBe(false);
   });
+
+  it("measures another page with its own worker", () => {
+    const dir = mkdtempSync(join(tmpdir(), "bundle-"));
+    mkdirSync(join(dir, "assets"));
+    mkdirSync(join(dir, ".vite"));
+    writeFileSync(
+      join(dir, "how.html"),
+      `<script type="module" crossorigin src="/assets/how-a.js"></script>`,
+    );
+    writeFileSync(
+      join(dir, ".vite", "manifest.json"),
+      JSON.stringify({
+        "how.html": {
+          file: "assets/how-a.js",
+          src: "how.html",
+          isEntry: true,
+          imports: [],
+          dynamicImports: [],
+        },
+      }),
+    );
+    writeFileSync(join(dir, "assets", "how-a.js"), randomBytes(10 * KB));
+    writeFileSync(join(dir, "assets", "analysis.worker-x.js"), randomBytes(KB));
+    const options = {
+      page: "how.html",
+      workerFile: /^analysis\.worker-[\w-]+\.js$/,
+      requireStage: false,
+    };
+    const result = checkBundle(dir, budgets, options);
+    expect(result.ok).toBe(true);
+    expect(row(result, "first-load JS").files).toContain(
+      "assets/analysis.worker-x.js",
+    );
+    expect(
+      checkBundle(dir, { ...budgets, firstLoad: 5 * KB }, options).ok,
+    ).toBe(false);
+    expect(checkBundle(dir, budgets, loose).problems.join()).toContain(
+      "index.html is missing",
+    );
+  });
 });

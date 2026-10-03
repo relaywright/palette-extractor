@@ -3,7 +3,7 @@
     "collect": {
       "startServerCommand": "npm run preview -- --port 4173 --strictPort",
       "startServerReadyPattern": "Local:",
-      "url": ["http://localhost:4173/"],
+      "url": ["http://localhost:4173/", "http://localhost:4173/how.html"],
       "numberOfRuns": 3,
       "settings": { "preset": "desktop" }
     },
