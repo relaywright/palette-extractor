@@ -581,3 +581,32 @@ test.describe("phone", () => {
     await check("keyboard focus");
   });
 });
+
+test("a photo the page cannot read says so, with or without edits, instead of waiting for colors", async ({
+  page,
+}) => {
+  // Only the loupe's own read is refused, as it is for a photo the browser
+  // marks as cross-origin; the extraction that built the palette still works.
+  await page.addInitScript(() => {
+    const read = CanvasRenderingContext2D.prototype.getImageData;
+    CanvasRenderingContext2D.prototype.getImageData = function (
+      ...args: Parameters<typeof read>
+    ) {
+      if (new Error().stack?.includes("Loupe"))
+        throw new DOMException(
+          "The canvas has been tainted by cross-origin data.",
+          "SecurityError",
+        );
+      return read.apply(this, args);
+    };
+  });
+  await open(page, "halves.svg", HALVES);
+  await layer(page).click({ position: { x: 120, y: 160 } });
+  await expect(note(page)).toHaveText("This photo cannot be sampled.");
+
+  const red = (await hexes(page)).indexOf("#c8321e");
+  await nudge(page, red, "Shift+ArrowRight", 1);
+  await layer(page).click({ position: { x: 120, y: 160 } });
+  await expect(note(page)).toHaveText("This photo cannot be sampled.");
+  await expect(lockedCount(page)).toHaveCount(0);
+});
