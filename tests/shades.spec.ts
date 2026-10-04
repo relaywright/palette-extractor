@@ -136,7 +136,10 @@ for (const width of [390, 768, 1440]) {
     await ready(page);
     await page.getByRole("tab", { name: "Contrast check" }).click();
     await page.getByRole("radio", { name: "Tritanopia" }).check();
-    await expect(page.locator(".cvd-indicator")).toBeVisible();
+    // On a phone the badge stays hidden while the tool sheet is open, so the
+    // simulation is checked on the page itself.
+    await expect(page.locator("html")).toHaveAttribute("data-cvd", /\w/);
+    if (width > 580) await expect(page.locator(".cvd-indicator")).toBeVisible();
     await openShades(page);
     const results = await new AxeBuilder({ page })
       .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
