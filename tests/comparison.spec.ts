@@ -47,7 +47,9 @@ function headings(page: Page) {
   });
 }
 
-for (const width of [390, 580, 581, 699, 700, 759, 760, 768, 850, 851, 1440])
+for (const width of [
+  360, 375, 390, 580, 581, 699, 700, 759, 760, 768, 850, 851, 1440,
+])
   test(`the color space switch sits beside Replace at ${width}px`, async ({
     page,
   }) => {
@@ -72,11 +74,14 @@ for (const width of [390, 580, 581, 699, 700, 759, 760, 768, 850, 851, 1440])
         replaceText: row.lastElementChild!.textContent!.trim(),
         spread: Math.max(...centers) - Math.min(...centers),
         gap: replace.left - fieldset.right,
+        overflow: replace.right - row.getBoundingClientRect().right,
         legendHidden: legend.width <= 1 && legend.height <= 1,
       };
     });
     expect(row.order).toEqual(["H2", "FIELDSET", "BUTTON"]);
-    expect(row.replaceText).toBe("Replace");
+    // Phones label it plainly as the way to upload.
+    expect(row.replaceText).toBe(width <= 580 ? "Upload" : "Replace");
+    expect(row.overflow).toBeLessThanOrEqual(0.5);
     expect(row.spread).toBeLessThanOrEqual(2);
     expect(row.gap).toBeGreaterThanOrEqual(0);
     expect(row.gap).toBeLessThanOrEqual(24);

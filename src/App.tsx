@@ -668,10 +668,18 @@ export default function App() {
                 </span>
               </fieldset>
               <button
-                className="text-button"
+                className="text-button source-upload"
                 onClick={() => fileInput.current?.click()}
               >
-                Replace <Icon name="arrow" size={14} />
+                {phone ? (
+                  <>
+                    <Icon name="upload" size={14} /> Upload
+                  </>
+                ) : (
+                  <>
+                    Replace <Icon name="arrow" size={14} />
+                  </>
+                )}
               </button>
             </div>
             <div className={`source-frame ${busy ? "is-processing" : ""}`}>

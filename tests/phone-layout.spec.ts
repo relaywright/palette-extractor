@@ -161,11 +161,11 @@ test.describe("phone layout", () => {
       };
     });
     expect(order).toEqual({ holds: true, afterHint: true, beforeDock: true });
-    // Replace stays in the source row as the upload path above the fold.
-    const replace = page
+    // Upload stays in the source row as the upload path above the fold.
+    const upload = page
       .locator(".source-panel > .section-label")
-      .getByRole("button", { name: "Replace" });
-    await expect(replace).toBeInViewport();
+      .getByRole("button", { name: "Upload", exact: true });
+    await expect(upload).toBeInViewport();
   });
 
   test("tab order follows the phone's visual order", async ({ page }) => {
@@ -222,7 +222,7 @@ test.describe("phone layout", () => {
       "Palette Extractor home",
       "View source",
     ]);
-    expect(names("source row")).toEqual(["RGB", "Replace"]);
+    expect(names("source row")).toEqual(["RGB", "Upload"]);
     expect(names("stage")).toEqual(
       expect.arrayContaining(["Photo", "Color space"]),
     );

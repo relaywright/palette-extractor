@@ -103,10 +103,74 @@
   line-height: 1.5;
   color: #acafb0;
 }
+/* Phones dock the panel above the tab bar, so the photo it recolors stays in
+   view above it. The tab bar stays pinned while it is open, and the page
+   gains room at its end so nothing is stranded beneath the panel. The panel
+   gives way to an open tool sheet. */
 @media (max-width: 580px) {
+  .adjust-panel {
+    position: fixed;
+    inset: auto 0 calc(var(--tab-bar) + env(safe-area-inset-bottom, 0px)) 0;
+    z-index: 27;
+    max-height: 50vh;
+    max-height: 50dvh;
+    overflow-y: auto;
+    margin: 0;
+    padding: 12px 20px 8px;
+    border-width: 1px 0 0;
+    border-radius: 14px 14px 0 0;
+    box-shadow: 0 -8px 24px #0007;
+  }
   .adjust-rows {
     grid-template-columns: 70px minmax(0, 1fr) 48px;
     gap: 2px 10px;
+  }
+  /* Touch screens have no keys to press. */
+  .adjust-keys {
+    display: none;
+  }
+  .source-frame {
+    scroll-margin-top: 12px;
+  }
+  html[data-adjusting] .workbench-nav {
+    position: fixed;
+  }
+  html[data-adjusting] {
+    scroll-padding-bottom: calc(
+      var(--tab-bar) + var(--adjust-dock, 0px) + 16px
+    );
+  }
+  html[data-adjusting] .app-shell {
+    padding-bottom: calc(
+      var(--tab-bar) + env(safe-area-inset-bottom, 0px) +
+        var(--adjust-dock, 0px)
+    );
+  }
+  html[data-adjusting] .cvd-indicator {
+    bottom: calc(
+      var(--tab-bar) + env(safe-area-inset-bottom, 0px) +
+        var(--adjust-dock, 0px) + 12px
+    );
+  }
+  html[data-adjusting][data-cvd] {
+    scroll-padding-bottom: calc(
+      var(--tab-bar) + var(--adjust-dock, 0px) + 72px
+    );
+  }
+  html[data-adjusting][data-cvd] .app-shell {
+    padding-bottom: calc(
+      var(--tab-bar) + env(safe-area-inset-bottom, 0px) +
+        var(--adjust-dock, 0px) + 64px
+    );
+  }
+  html[data-adjusting] .panel-notices {
+    bottom: calc(
+      var(--tab-bar) + env(safe-area-inset-bottom, 0px) +
+        var(--adjust-dock, 0px) + 16px
+    );
+  }
+  html[data-sheet="open"] .adjust-panel {
+    visibility: hidden;
   }
 }
 

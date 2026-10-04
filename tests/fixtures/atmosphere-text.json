@@ -91,6 +91,11 @@
       "layers": []
     },
     {
+      "element": "section.source-panel > div.section-label > button.text-button",
+      "ink": "rgb(236, 234, 228)",
+      "layers": []
+    },
+    {
       "element": "section.source-panel > div.section-label > h2",
       "ink": "rgb(241, 240, 235)",
       "layers": []
