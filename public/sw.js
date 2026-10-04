@@ -2,7 +2,9 @@
 // revision and the complete list of files its pages use (scripts/sw-build.mjs),
 // so a deploy always installs a new worker. Installing saves every file under
 // that revision and only succeeds when all of them arrive: until then the
-// previous worker keeps serving a consistent older version.
+// previous worker keeps serving a consistent older version. The previous
+// revision stays saved after an update, because a tab opened before it still
+// asks for that deploy's files (a panel it never opened, say).
 //
 // Pages load network-first, so a new deploy shows up on the next online visit.
 // Offline, each page comes from the copy saved by the worker that matches it,
@@ -13,11 +15,16 @@ const FILES = [];
 
 const CACHE_PREFIX = "palette-shell-";
 const SHELL = CACHE_PREFIX + REVISION;
+const INSTALLED_KEY = "/installed-at";
+// Revisions kept once a worker takes over: its own and the one before.
+const KEPT_REVISIONS = 2;
 const SHARED = "palette-shared-image";
 const SHARED_KEY = "/shared-image";
 const SHARE_TARGET = "/share-target";
 const NAVIGATION_TIMEOUT_MS = 4000;
 const SAVED_FILES = new Set(FILES);
+// Where a build's own files live; an older deploy's names are not in FILES.
+const BUILD_FILE = /^\/(?:assets|samples|fonts)\//;
 
 const OFFLINE_PAGE = `<!doctype html>
 <html lang="en">
@@ -79,11 +86,30 @@ async function precache() {
         await cache.put(url, response);
       }),
     ]);
+    // Written last, so activation can order revisions by when they finished.
+    await cache.put(INSTALLED_KEY, new Response(String(Date.now())));
   } catch (error) {
     // Never leave a half-saved revision behind.
     if (created) await caches.delete(SHELL);
     throw error;
   }
+}
+
+async function installedAt(name) {
+  const saved = await (await caches.open(name)).match(INSTALLED_KEY);
+  return saved ? Number(await saved.text()) || 0 : 0;
+}
+
+// Drops every saved revision but this one and the newest of the others.
+async function removeOldRevisions() {
+  const others = await Promise.all(
+    (await caches.keys())
+      .filter((name) => name.startsWith(CACHE_PREFIX) && name !== SHELL)
+      .map(async (name) => ({ name, at: await installedAt(name) })),
+  );
+  others.sort((a, b) => b.at - a.at);
+  for (const { name } of others.slice(KEPT_REVISIONS - 1))
+    await caches.delete(name);
 }
 
 self.addEventListener("install", (event) => {
@@ -93,9 +119,7 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     (async () => {
-      for (const name of await caches.keys())
-        if (name.startsWith(CACHE_PREFIX) && name !== SHELL)
-          await caches.delete(name);
+      await removeOldRevisions();
       await self.clients.claim();
     })(),
   );
@@ -151,7 +175,14 @@ async function savedFile(request) {
   // Origin header the saved copies were fetched without. A server that answers
   // "Vary: Origin" would make every one of them a miss; these files are named
   // by their content or never change, so Vary has nothing to say about them.
-  return (await cache.match(request, { ignoreVary: true })) ?? fetch(request);
+  const options = { ignoreVary: true };
+  // A tab opened before the latest update asks for that deploy's files, which
+  // the previous revision still holds.
+  return (
+    (await cache.match(request, options)) ??
+    (await caches.match(request, options)) ??
+    fetch(request)
+  );
 }
 
 // Android's share sheet posts the photo here. It is parked in Cache Storage
@@ -187,5 +218,6 @@ self.addEventListener("fetch", (event) => {
   }
   if (request.method !== "GET") return;
   if (request.mode === "navigate") event.respondWith(openPage(request));
-  else if (SAVED_FILES.has(url.pathname)) event.respondWith(savedFile(request));
+  else if (SAVED_FILES.has(url.pathname) || BUILD_FILE.test(url.pathname))
+    event.respondWith(savedFile(request));
 });
