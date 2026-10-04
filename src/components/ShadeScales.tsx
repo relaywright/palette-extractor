@@ -111,7 +111,8 @@ export function ShadeScales({ palette }: { palette: RGB[] }) {
                   <li key={shade.stop}>
                     <button
                       type="button"
-                      className="shade-chip"
+                      className={`shade-chip${shade.anchor ? " is-anchor" : ""}`}
+                      title={shade.anchor ? "Your color" : undefined}
                       onClick={() => void copy(key, value)}
                       aria-label={`Copy ${names[row]} ${shade.stop}, ${value}${shade.anchor ? ", your color" : ""}`}
                     >
@@ -120,10 +121,7 @@ export function ShadeScales({ palette }: { palette: RGB[] }) {
                           background: kind === "hex" ? shade.hex : shade.p3,
                         }}
                       />
-                      <span className="shade-stop">
-                        {shade.stop}
-                        {shade.anchor && " · yours"}
-                      </span>
+                      <span className="shade-stop">{shade.stop}</span>
                       <code aria-live="polite">
                         {copied === key ? "Copied!" : value}
                       </code>

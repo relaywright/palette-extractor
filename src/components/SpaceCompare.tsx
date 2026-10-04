@@ -115,6 +115,9 @@ export default function SpaceCompare({
               Palette colors found in each color space, matching colors in the
               same column
             </caption>
+            <colgroup>
+              <col className="space-compare-label" />
+            </colgroup>
             <tbody>
               {rows.map(([label, space]) => (
                 <tr key={label}>

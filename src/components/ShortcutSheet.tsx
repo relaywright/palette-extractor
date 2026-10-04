@@ -1,26 +1,32 @@
 import { useEffect, useRef } from "react";
 import "./shortcuts.css";
 
-/** Add a row here and it shows up in the sheet. */
-export const SHORTCUTS: { keys: string[]; action: string; joiner?: string }[] =
-  [
-    { keys: ["1", "9"], joiner: "to", action: "Select swatch 1 to 9" },
-    { keys: ["0"], action: "Select swatch 10" },
-    { keys: ["C"], action: "Copy the selected color" },
-    { keys: ["Shift", "C"], action: "Copy the whole palette" },
-    { keys: ["S"], action: "Copy the share link" },
-    { keys: ["?"], action: "Show this list" },
-    {
-      keys: ["Shift", "↑ or ↓"],
-      action: "Lighten or darken the focused swatch",
-    },
-    { keys: ["Shift", "← or →"], action: "Turn the focused swatch's hue" },
-    {
-      keys: ["Shift", "Page Up or Page Down"],
-      action: "Raise or lower the focused swatch's chroma",
-    },
-    { keys: ["Shift", "Home"], action: "Undo the focused swatch's edit" },
-  ];
+/**
+ * Add a row here and it shows up in the sheet. A key given as a list is one
+ * of several keys that do the same thing.
+ */
+export const SHORTCUTS: {
+  keys: (string | string[])[];
+  action: string;
+  joiner?: string;
+}[] = [
+  { keys: ["1", "9"], joiner: "to", action: "Select swatch 1 to 9" },
+  { keys: ["0"], action: "Select swatch 10" },
+  { keys: ["C"], action: "Copy the selected color" },
+  { keys: ["Shift", "C"], action: "Copy the whole palette" },
+  { keys: ["S"], action: "Copy the share link" },
+  { keys: ["?"], action: "Show this list" },
+  {
+    keys: ["Shift", ["↑", "↓"]],
+    action: "Lighten or darken the focused swatch",
+  },
+  { keys: ["Shift", ["←", "→"]], action: "Turn the focused swatch's hue" },
+  {
+    keys: ["Shift", ["Page Up", "Page Down"]],
+    action: "Raise or lower the focused swatch's chroma",
+  },
+  { keys: ["Shift", "Home"], action: "Undo the focused swatch's edit" },
+];
 
 export function ShortcutSheet({ onClose }: { onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -59,9 +65,18 @@ export function ShortcutSheet({ onClose }: { onClose: () => void }) {
             <div key={action}>
               <dt>
                 {keys.map((key, i) => (
-                  <span key={key}>
+                  <span key={String(key)}>
                     {i > 0 && ` ${joiner} `}
-                    <kbd>{key}</kbd>
+                    {typeof key === "string" ? (
+                      <kbd>{key}</kbd>
+                    ) : (
+                      key.map((option, j) => (
+                        <span key={option}>
+                          {j > 0 && " or "}
+                          <kbd>{option}</kbd>
+                        </span>
+                      ))
+                    )}
                   </span>
                 ))}
               </dt>

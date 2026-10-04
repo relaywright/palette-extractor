@@ -71,7 +71,7 @@ test("clicking the photo pins that exact pixel color", async ({ page }) => {
   expect(hex).toMatch(/^#[0-9a-f]{6}$/);
   expect(await hexes(page)).not.toContain(hex);
   await layer(page).click({ position: { x: 210, y: 90 } });
-  await expect(note(page)).toHaveText(`Pinned ${hex}.`);
+  await expect(note(page)).toHaveText(`Pinned ${hex} to the palette.`);
   await expect(lockedCount(page)).toHaveCount(1);
   await ready(page);
   expect((await hexes(page))[0]).toBe(hex);
@@ -241,7 +241,7 @@ test("the loupe reads the recolored photo, and pins what it shows", async ({
   await expect(loupeHex(page)).toHaveText("#1e64c8");
 
   await layer(page).click({ position: { x: 120, y: 160 } });
-  await expect(note(page)).toHaveText(`Pinned ${edited}.`);
+  await expect(note(page)).toHaveText(`Pinned ${edited} to the palette.`);
 });
 
 test("the loupe only ever shows the recolored color while the recolor is prepared", async ({
@@ -491,7 +491,7 @@ test("a resize that crops the cursor's pixel moves the cursor and Enter pins wha
   await expect(loupeHex(page)).not.toHaveText(edge);
   const shown = (await loupeHex(page).innerText()).toLowerCase();
   await page.keyboard.press("Enter");
-  await expect(note(page)).toHaveText(`Pinned ${shown}.`);
+  await expect(note(page)).toHaveText(`Pinned ${shown} to the palette.`);
 });
 
 test("a thin photo is picked where the page shows it", async ({ page }) => {

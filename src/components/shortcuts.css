@@ -1,5 +1,5 @@
 .shortcut-sheet {
-  width: min(420px, calc(100vw - 32px));
+  width: min(480px, calc(100vw - 32px));
   max-height: calc(100dvh - 32px);
   margin: auto;
   padding: 0;
@@ -31,14 +31,22 @@
 }
 .shortcut-body dl > div {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 4px 16px;
   padding: 9px 0;
   border-bottom: 1px solid #2c3032;
   font-size: 14px;
 }
+/* Keys stay on one line; the description beside them wraps instead. */
+.shortcut-body dt {
+  flex-shrink: 0;
+  white-space: nowrap;
+  color: #a5a7a8;
+}
 .shortcut-body dd {
+  flex: 1 1 140px;
   color: #c4c6c6;
   text-align: right;
 }

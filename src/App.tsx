@@ -234,8 +234,14 @@ export default function App() {
     [sorted, colors, extractedColors],
   );
   const [adjusting, setAdjusting] = useState(false);
-  // Any other photo (upload, drop, paste, URL, freeze) ends the camera.
-  useEffect(() => setCamera("off"), [source]);
+  // Bumped to bring the stage's Photo view forward, where edits show.
+  const [photoRequest, setPhotoRequest] = useState(0);
+  // Any other photo (upload, drop, paste, URL, freeze) ends the camera, and
+  // the Adjust panel, whose color belonged to the last photo.
+  useEffect(() => {
+    setCamera("off");
+    setAdjusting(false);
+  }, [source]);
   const liveCamera = camera === "live";
   const canCamera = !!navigator.mediaDevices?.getUserMedia;
   // An upload, URL or camera photo, as opposed to a bundled sample.
@@ -335,6 +341,7 @@ export default function App() {
       const slot = slotOf(id);
       if (slot < 0 || busy) return;
       selectSwatch(id);
+      if (action !== "adjust" || !adjusting) setPhotoRequest((n) => n + 1);
       if (action === "adjust") return setAdjusting((open) => !open);
       // Only a failed download is caught here; the visible error line says
       // so, since the edit the key asked for did not happen.
@@ -450,6 +457,9 @@ export default function App() {
       )}
     </div>
   );
+  // A photo that failed to load leaves the last good one, and its palette,
+  // on screen, so that one stays marked.
+  const shownSrc = error ? loaded?.src : source?.src;
   const sourceControls = (
     <>
       <div className="sample-row">
@@ -458,9 +468,9 @@ export default function App() {
           {samples.map((sample) => (
             <button
               key={sample.src}
-              className={source?.src === sample.src ? "active" : ""}
+              className={shownSrc === sample.src ? "active" : ""}
               aria-label={`Try ${sample.name}`}
-              aria-pressed={source?.src === sample.src}
+              aria-pressed={shownSrc === sample.src}
               onClick={() => imageSource.chooseSource(sample)}
             >
               <img src={sample.src} alt="" />
@@ -722,6 +732,7 @@ export default function App() {
                         result={stageResult}
                         host={stageHost}
                         hero={hero}
+                        photoRequest={photoRequest}
                         overlay={(focus) => (
                           <PanelBoundary
                             floating
@@ -960,6 +971,7 @@ export default function App() {
                 aria-controls="space-compare"
                 onClick={() => setCompareOpen(!compareOpen)}
               >
+                <Icon name={compareOpen ? "close" : "swap"} size={14} />
                 {compareOpen ? "Hide comparison" : "Compare RGB and Perceptual"}
               </button>
             )}

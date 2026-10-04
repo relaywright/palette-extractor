@@ -75,12 +75,15 @@ export default function Stage({
   host,
   hero,
   overlay,
+  photoRequest = 0,
 }: {
   result: StageResult;
   host: RefObject<HTMLDivElement>;
   hero: RefObject<HTMLImageElement>;
   /** What the Photo view shows over the photo, given the swatch in focus. */
   overlay?: (focus: number) => ReactNode;
+  /** A new value brings the Photo view forward, as when a color is adjusted. */
+  photoRequest?: number;
 }) {
   const surface = useRef<HTMLDivElement>(null);
   const wire = useRef<HTMLCanvasElement>(null);
@@ -740,6 +743,20 @@ export default function Stage({
     };
   }, [host]);
 
+  const showView = (value: "photo" | "cloud") => {
+    controls.current.skip();
+    session.view = value;
+    viewRef.current = value;
+    setView(value);
+    controls.current.refresh();
+  };
+
+  // Recoloring shows on the photo, not in the cloud.
+  useEffect(() => {
+    if (photoRequest && viewRef.current !== "photo") showView("photo");
+    // showView only touches refs and state setters.
+  }, [photoRequest]);
+
   return (
     <>
       <div
@@ -778,13 +795,7 @@ export default function Stage({
           <button
             key={value}
             aria-pressed={view === value}
-            onClick={() => {
-              controls.current.skip();
-              session.view = value;
-              viewRef.current = value;
-              setView(value);
-              controls.current.refresh();
-            }}
+            onClick={() => showView(value)}
           >
             {label}
           </button>

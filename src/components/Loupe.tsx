@@ -54,7 +54,7 @@ interface Pick {
 }
 
 const MESSAGES: Record<PinOutcome, (hex: string) => string> = {
-  pinned: (hex) => `Pinned ${hex}.`,
+  pinned: (hex) => `Pinned ${hex} to the palette.`,
   already: (hex) => `${hex} is already pinned.`,
   full: () => "The palette is full at 10 colors. Unlock one to pin another.",
   busy: () => "Still finding colors. Try again in a moment.",
