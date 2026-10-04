@@ -7,7 +7,7 @@
 
 [Open the live app](https://palette-extractor.relaywright.workers.dev/)
 
-![Palette Extractor color studio with a desert photograph and its extracted colors](.github/studio.webp)
+![A desert photo lifts into a 3D cloud of its colors and lands as six swatches; hovering a swatch lights its pixels, a hue slider recolors the dunes live, a loupe pins an exact pixel, and a coastal photo replaces it](.github/demo.webp)
 
 ## Explore the palette
 
@@ -42,7 +42,7 @@
 
 ## How it works
 
-![The How it works panel: sampled pixels rotating in an RGB cube while median-cut boxes split into the final palette](.github/how-it-works.webp)
+![The How it works panel: 20,000 sampled pixels in an RGB cube while median-cut boxes split step by step into six color groups](.github/how-it-works.webp)
 
 [Read how median cut works](https://palette-extractor.relaywright.workers.dev/how.html), an interactive walkthrough that runs the quantizer on your own photo.
 
