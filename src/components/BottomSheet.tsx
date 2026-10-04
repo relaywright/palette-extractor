@@ -53,6 +53,8 @@ export default function BottomSheet({
       root.dataset.tabBar = pinned ? "on" : "off";
     };
     update();
+    // Floating badges read this to keep clear of an open sheet.
+    root.dataset.sheet = open ? "open" : "closed";
     addEventListener("scroll", update, { passive: true });
     addEventListener("focusin", update);
     addEventListener("focusout", update);
@@ -61,6 +63,7 @@ export default function BottomSheet({
       removeEventListener("focusin", update);
       removeEventListener("focusout", update);
       delete root.dataset.tabBar;
+      delete root.dataset.sheet;
     };
   }, [open]);
 
