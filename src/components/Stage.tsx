@@ -751,9 +751,13 @@ export default function Stage({
     controls.current.refresh();
   };
 
-  // Recoloring shows on the photo, not in the cloud.
+  // Recoloring shows on the photo, not in the cloud. Each request is acted
+  // on once, so a stage mounted later (after the camera, say) keeps the view
+  // that was chosen since.
   useEffect(() => {
-    if (photoRequest && viewRef.current !== "photo") showView("photo");
+    if (photoRequest === session.photoRequest) return;
+    session.photoRequest = photoRequest;
+    if (viewRef.current !== "photo") showView("photo");
     // showView only touches refs and state setters.
   }, [photoRequest]);
 

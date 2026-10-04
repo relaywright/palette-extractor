@@ -458,8 +458,9 @@ export default function App() {
     </div>
   );
   // A photo that failed to load leaves the last good one, and its palette,
-  // on screen, so that one stays marked.
-  const shownSrc = error ? loaded?.src : source?.src;
+  // on screen, so that one stays marked. While a photo loads, the one chosen
+  // is marked at once.
+  const shownSrc = !busy && loaded ? loaded.src : source?.src;
   const sourceControls = (
     <>
       <div className="sample-row">

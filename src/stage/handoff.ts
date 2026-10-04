@@ -8,6 +8,8 @@ export const session = {
   view: "cloud" as "photo" | "cloud",
   /** Set once the cloud has been turned by hand or key on this page. */
   turned: false,
+  /** The last request for the Photo view a stage acted on. */
+  photoRequest: 0,
 };
 
 // No later than this after navigation on a first load, the swatches show,

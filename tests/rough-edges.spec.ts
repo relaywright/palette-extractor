@@ -17,10 +17,27 @@ test("opening Adjust brings the photo forward, where the recolor shows", async (
   await expect(page.locator(".adjust-panel")).toBeVisible();
   await expect(photo).toHaveAttribute("aria-pressed", "true");
 
-  // Choosing the cloud again while adjusting is respected.
+  // Choosing the cloud again while adjusting is respected, also once the
+  // edit has landed.
   await cloud.click();
   await page.getByLabel("Hue").fill("200");
+  await expect(page.locator(".swatch.selected .edit-marker")).toHaveCount(1);
+  await page.waitForTimeout(300);
   await expect(cloud).toHaveAttribute("aria-pressed", "true");
+});
+
+test("a keyboard nudge brings the photo forward too", async ({ page }) => {
+  await page.goto("/");
+  await ready(page);
+  await settled(page);
+  const cloud = page.getByRole("button", { name: "Color space", exact: true });
+  await cloud.click();
+  await page.locator(".swatch-select").nth(2).focus();
+  await page.keyboard.press("Shift+ArrowUp");
+  await expect(page.locator(".edit-marker")).toHaveCount(1);
+  await expect(
+    page.getByRole("button", { name: "Photo", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
 });
 
 test("a new photo closes the Adjust panel", async ({ page }) => {
@@ -131,5 +148,9 @@ test("a photo that fails to load leaves the shown sample marked", async ({
     buffer: Buffer.from("not an image"),
   });
   await expect(page.getByRole("alert").first()).toBeVisible();
+  await expect(shown).toHaveAttribute("aria-pressed", "true");
+  // Dismissing the error leaves the same photo, so the same mark.
+  await page.getByRole("button", { name: "Dismiss error" }).click();
+  await expect(page.getByRole("alert")).toHaveCount(0);
   await expect(shown).toHaveAttribute("aria-pressed", "true");
 });
