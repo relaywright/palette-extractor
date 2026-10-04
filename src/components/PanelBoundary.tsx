@@ -40,21 +40,37 @@ async function newerBuildServed(): Promise<boolean> {
   }
 }
 
-// The palette on screen, which a reload carries through the address.
+// The palette on screen, which a reload carries through the address, and
+// whether there is anything worth carrying: a bundled sample with no edits or
+// pins comes back whole from a plain reload, photo and all.
 let shownPalette: RGB[] = [];
+let keepPalette = false;
+let photoLost = false;
 
 /** Tells "Reload page" which palette to keep. Renders nothing. */
-export function ReloadPalette({ colors }: { colors: RGB[] }) {
+export function ReloadPalette({
+  colors,
+  keep,
+  ownPhoto,
+}: {
+  colors: RGB[];
+  /** Carry the palette through the reload. */
+  keep: boolean;
+  /** The photo is the visitor's own, which a reload cannot bring back. */
+  ownPhoto: boolean;
+}) {
   useEffect(() => {
     shownPalette = colors;
-  }, [colors]);
+    keepPalette = keep;
+    photoLost = ownPhoto;
+  }, [colors, keep, ownPhoto]);
   return null;
 }
 
 function reloadPage() {
   // replaceState never fires hashchange, so the page does not start loading
   // the palette it already shows.
-  if (shownPalette.length)
+  if (keepPalette && shownPalette.length)
     history.replaceState(
       history.state,
       "",
@@ -136,7 +152,12 @@ export class PanelBoundary extends Component<Props, State> {
   }
 
   componentDidUpdate(previous: Props) {
-    if (previous.resetKey !== this.props.resetKey && this.state.failure) {
+    // A failed download stays failed until the page reloads (the lazy
+    // component keeps its rejection), so only a render failure gets a new try.
+    if (
+      previous.resetKey !== this.props.resetKey &&
+      this.state.failure === "render"
+    ) {
       this.attempt++;
       this.setState(CLEAR);
     }
@@ -182,6 +203,8 @@ export class PanelBoundary extends Component<Props, State> {
             : newer
               ? "A newer version of the app is available."
               : "This part of the app could not load."}
+          {photoLost &&
+            " Reloading keeps your colors, but your photo will need to be added again."}
         </p>
         <div className="panel-boundary-actions">
           <button

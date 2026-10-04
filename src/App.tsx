@@ -238,6 +238,8 @@ export default function App() {
   useEffect(() => setCamera("off"), [source]);
   const liveCamera = camera === "live";
   const canCamera = !!navigator.mediaDevices?.getUserMedia;
+  // An upload, URL or camera photo, as opposed to a bundled sample.
+  const ownPhoto = !!source && !samples.some((s) => s.src === source.src);
   const hero = useRef<HTMLImageElement>(null);
   const stageHost = useRef<HTMLDivElement>(null);
   const [stageReady, setStageReady] = useState(false);
@@ -334,13 +336,21 @@ export default function App() {
       if (slot < 0 || busy) return;
       selectSwatch(id);
       if (action === "adjust") return setAdjusting((open) => !open);
-      void loadNudge().then(({ nudgeEdit, stepForKey }) => {
-        const step = stepForKey(action);
-        edits.setEdit(
-          slot,
-          step ? (edit) => nudgeEdit(extractedColors[slot], edit, step) : null,
+      void loadNudge()
+        .then(({ nudgeEdit, stepForKey }) => {
+          const step = stepForKey(action);
+          edits.setEdit(
+            slot,
+            step
+              ? (edit) => nudgeEdit(extractedColors[slot], edit, step)
+              : null,
+          );
+        })
+        .catch(() =>
+          copyFeedback.setNotice(
+            "Recoloring could not load. Reload the page and try again.",
+          ),
         );
-      });
     },
   };
   const resetEdits = () => {
@@ -1120,7 +1130,11 @@ export default function App() {
         </PanelBoundary>
       )}
       <CvdFilters />
-      <ReloadPalette colors={colors} />
+      <ReloadPalette
+        colors={colors}
+        keep={!source || ownPhoto || edits.touched || locked.length > 0}
+        ownPhoto={ownPhoto}
+      />
       {dragging && (
         <div className="drop-overlay">
           <Icon name="upload" size={44} />
