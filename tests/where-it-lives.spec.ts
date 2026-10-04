@@ -132,6 +132,23 @@ test.describe("touch", () => {
     await page.locator("h1").tap();
     await expect(dim(page)).toHaveAttribute("data-dim", "off");
   });
+
+  test("a tapped swatch gives way when the keyboard moves to another", async ({
+    page,
+  }) => {
+    await open(page);
+    const name = (index: number) =>
+      page.locator(".swatch").nth(index).locator(".swatch-info span").first();
+    await page.locator(".swatch").nth(1).locator(".swatch-color").tap();
+    await expect(page.locator(".focus-note")).toHaveText(
+      `Sampled pixels near ${await name(1).innerText()}`,
+    );
+    await page.keyboard.press("Tab");
+    await page.locator(".swatch").nth(3).locator(".swatch-select").focus();
+    await expect(page.locator(".focus-note")).toHaveText(
+      `Sampled pixels near ${await name(3).innerText()}`,
+    );
+  });
 });
 
 for (const size of WIDTHS)
