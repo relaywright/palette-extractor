@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { ready, stageDone, settled } from "./helpers";
+import { TIMING, ready, stageDone, settled } from "./helpers";
 import {
   accessible,
   CURRENT_POINTS,
@@ -11,105 +11,108 @@ import {
   watchIntroStart,
 } from "./stage-checks";
 
-test("pointer skip is immediate and a copy click retains its action", async ({
-  page,
-  context,
-}) => {
-  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
-  await page.goto("/");
-  await expect(host(page)).toHaveAttribute("data-stage-phase", "intro");
-  const elapsed = await page.locator(".source-frame").evaluate((el) => {
-    const start = performance.now();
-    el.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
-    return {
-      elapsed: performance.now() - start,
-      phase: el.querySelector<HTMLElement>(".stage-host")!.dataset.stagePhase,
-    };
-  });
-  expect(elapsed.phase).toBe("done");
-  expect(elapsed.elapsed).toBeLessThan(100);
-  await page.getByRole("button", { name: "Try Forest floor" }).click();
-  await expect(host(page)).toHaveAttribute("data-stage-phase", "intro");
-  // Swatches slide to their new slots first; a forced click aimed while the
-  // button is moving lands on whatever passes under that point.
-  await expect(page.locator(".swatch-grid")).toHaveAttribute(
-    "data-morph",
-    "idle",
-  );
-  const button = page.locator(".swatch-info button").first();
-  const color = await button.innerText();
-  await page.evaluate(() =>
-    window.addEventListener(
-      "pointerdown",
-      () =>
-        (document.body.dataset.copyPhase =
-          document.querySelector<HTMLElement>(
-            ".stage-host",
-          )!.dataset.stagePhase),
-      { once: true, capture: true },
-    ),
-  );
-  // Forced, so waiting for the swatch entrance cannot outlast the intro.
-  await button.click({ force: true });
-  expect(await page.locator("body").getAttribute("data-copy-phase")).toBe(
-    "intro",
-  );
-  await expect(host(page)).toHaveAttribute("data-stage-phase", "done");
-  await expect(button).toContainText("Copied!");
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
-    color.trim(),
-  );
-});
-
-test("touch skips within 100ms and selects both source views", async ({
-  browser,
-}) => {
-  const context = await browser.newContext({
-    baseURL: test.info().project.use.baseURL,
-    hasTouch: true,
-    viewport: { width: 390, height: 844 },
-  });
-  const page = await context.newPage();
-  await page.goto("/");
-  await expect(host(page)).toHaveAttribute("data-stage-phase", "intro");
-  await page.evaluate(() => {
-    window.addEventListener(
-      "pointerdown",
-      (event) => {
-        document.body.dataset.skipPhase =
-          document.querySelector<HTMLElement>(
-            ".stage-host",
-          )!.dataset.stagePhase;
-        document.body.dataset.skipTime = String(
-          performance.now() - event.timeStamp,
-        );
-      },
-      { once: true },
+test(
+  "pointer skip is immediate and a copy click retains its action",
+  TIMING,
+  async ({ page, context }) => {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    await page.goto("/");
+    await expect(host(page)).toHaveAttribute("data-stage-phase", "intro");
+    const elapsed = await page.locator(".source-frame").evaluate((el) => {
+      const start = performance.now();
+      el.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+      return {
+        elapsed: performance.now() - start,
+        phase: el.querySelector<HTMLElement>(".stage-host")!.dataset.stagePhase,
+      };
+    });
+    expect(elapsed.phase).toBe("done");
+    expect(elapsed.elapsed).toBeLessThan(100);
+    await page.getByRole("button", { name: "Try Forest floor" }).click();
+    await expect(host(page)).toHaveAttribute("data-stage-phase", "intro");
+    // Swatches slide to their new slots first; a forced click aimed while the
+    // button is moving lands on whatever passes under that point.
+    await expect(page.locator(".swatch-grid")).toHaveAttribute(
+      "data-morph",
+      "idle",
     );
-  });
-  const box = await page.locator(".source-frame").boundingBox();
-  await page.touchscreen.tap(box!.x + 30, box!.y + 30);
-  // Read by a listener added after the stage's own, so it sees the phase the
-  // tap left behind, not the one before it.
-  await expect(page.locator("body")).toHaveAttribute("data-skip-phase", /./);
-  expect(await page.locator("body").getAttribute("data-skip-phase")).toBe(
-    "done",
-  );
-  expect(
-    Number(await page.locator("body").getAttribute("data-skip-time")),
-  ).toBeLessThan(100);
-  const group = page.getByRole("group", { name: "Source view" });
-  await group.getByRole("button", { name: "Photo", exact: true }).tap();
-  await expect(
-    group.getByRole("button", { name: "Photo", exact: true }),
-  ).toHaveAttribute("aria-pressed", "true");
-  await expect(host(page)).toHaveAttribute("data-stage-loop", "idle");
-  await group.getByRole("button", { name: "Color space", exact: true }).tap();
-  await expect(
-    group.getByRole("button", { name: "Color space", exact: true }),
-  ).toHaveAttribute("aria-pressed", "true");
-  await context.close();
-});
+    const button = page.locator(".swatch-info button").first();
+    const color = await button.innerText();
+    await page.evaluate(() =>
+      window.addEventListener(
+        "pointerdown",
+        () =>
+          (document.body.dataset.copyPhase =
+            document.querySelector<HTMLElement>(
+              ".stage-host",
+            )!.dataset.stagePhase),
+        { once: true, capture: true },
+      ),
+    );
+    // Forced, so waiting for the swatch entrance cannot outlast the intro.
+    await button.click({ force: true });
+    expect(await page.locator("body").getAttribute("data-copy-phase")).toBe(
+      "intro",
+    );
+    await expect(host(page)).toHaveAttribute("data-stage-phase", "done");
+    await expect(button).toContainText("Copied!");
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+      color.trim(),
+    );
+  },
+);
+
+test(
+  "touch skips within 100ms and selects both source views",
+  TIMING,
+  async ({ browser }) => {
+    const context = await browser.newContext({
+      baseURL: test.info().project.use.baseURL,
+      hasTouch: true,
+      viewport: { width: 390, height: 844 },
+    });
+    const page = await context.newPage();
+    await page.goto("/");
+    await expect(host(page)).toHaveAttribute("data-stage-phase", "intro");
+    await page.evaluate(() => {
+      window.addEventListener(
+        "pointerdown",
+        (event) => {
+          document.body.dataset.skipPhase =
+            document.querySelector<HTMLElement>(
+              ".stage-host",
+            )!.dataset.stagePhase;
+          document.body.dataset.skipTime = String(
+            performance.now() - event.timeStamp,
+          );
+        },
+        { once: true },
+      );
+    });
+    const box = await page.locator(".source-frame").boundingBox();
+    await page.touchscreen.tap(box!.x + 30, box!.y + 30);
+    // Read by a listener added after the stage's own, so it sees the phase the
+    // tap left behind, not the one before it.
+    await expect(page.locator("body")).toHaveAttribute("data-skip-phase", /./);
+    expect(await page.locator("body").getAttribute("data-skip-phase")).toBe(
+      "done",
+    );
+    expect(
+      Number(await page.locator("body").getAttribute("data-skip-time")),
+    ).toBeLessThan(100);
+    const group = page.getByRole("group", { name: "Source view" });
+    await group.getByRole("button", { name: "Photo", exact: true }).tap();
+    await expect(
+      group.getByRole("button", { name: "Photo", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
+    await expect(host(page)).toHaveAttribute("data-stage-loop", "idle");
+    await group.getByRole("button", { name: "Color space", exact: true }).tap();
+    await expect(
+      group.getByRole("button", { name: "Color space", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
+    await context.close();
+  },
+);
 
 test("reduced motion draws once with stable pixels and no stage animations", async ({
   page,
@@ -436,50 +439,60 @@ test("changing motion preference during the intro finishes it", async ({
   await expect(host(page)).toHaveAttribute("data-stage-loop", "idle");
 });
 
-test("a new sample uses the short intro and preserves its palette", async ({
-  page,
-}) => {
-  await page.goto("/");
-  await stageDone(page);
-  await watchIntroStart(page);
-  await page.getByRole("button", { name: "Try Forest floor" }).click();
-  await expect(host(page)).toHaveAttribute("data-stage-phase", "intro");
-  await expect(host(page)).toHaveAttribute("data-stage-done-at", /\d/, {
-    timeout: 2500,
-  });
-  const mark = async (name: string) =>
-    Number(await host(page).getAttribute(name));
-  const introAt = (await introObservedAt(page))!;
-  // The intro's clock runs on frame times, which can run behind the page's
-  // clock on a busy machine, so the stage's start mark (taken at the first
-  // drawn frame) is not a reliable start for a lower bound. The planned
-  // length is read from the moment the intro began to its planned end mark.
-  const planned = (await mark("data-stage-ends-at")) - introAt;
-  expect(planned).toBeGreaterThan(1100);
-  expect(planned).toBeLessThanOrEqual(1201);
-  // The full intro is 3,000 ms; the measured intro must be nowhere near it,
-  // and not cut short either.
-  const duration =
-    (await mark("data-stage-done-at")) - (await mark("data-stage-started-at"));
-  expect(duration).toBeLessThan(2000);
-  expect((await mark("data-stage-done-at")) - introAt).toBeGreaterThan(1000);
-  expect(
-    await page
-      .locator(".swatch-select")
-      .evaluateAll((els) =>
-        els.map(
-          (el) => el.getAttribute("aria-label")!.match(/#[0-9a-f]{6}/i)![0],
+test(
+  "a new sample uses the short intro and preserves its palette",
+  TIMING,
+  async ({ page }) => {
+    await page.goto("/");
+    await stageDone(page);
+    await watchIntroStart(page);
+    await page.getByRole("button", { name: "Try Forest floor" }).click();
+    await expect(host(page)).toHaveAttribute("data-stage-phase", "intro");
+    await expect(host(page)).toHaveAttribute("data-stage-done-at", /\d/, {
+      timeout: 2500,
+    });
+    const mark = async (name: string) =>
+      Number(await host(page).getAttribute(name));
+    const introAt = (await introObservedAt(page))!;
+    // The intro's clock runs on frame times, which can run behind the page's
+    // clock on a busy machine, so the stage's start mark (taken at the first
+    // drawn frame) is not a reliable start for a lower bound. The planned
+    // length is read from the moment the intro began to its planned end mark.
+    const planned = (await mark("data-stage-ends-at")) - introAt;
+    expect(planned).toBeGreaterThan(1100);
+    expect(planned).toBeLessThanOrEqual(1201);
+    // The full intro is 3,000 ms; the measured intro must be nowhere near it,
+    // and not cut short either.
+    const duration =
+      (await mark("data-stage-done-at")) -
+      (await mark("data-stage-started-at"));
+    expect(duration).toBeLessThan(2000);
+    expect((await mark("data-stage-done-at")) - introAt).toBeGreaterThan(1000);
+    expect(
+      await page
+        .locator(".swatch-select")
+        .evaluateAll((els) =>
+          els.map(
+            (el) => el.getAttribute("aria-label")!.match(/#[0-9a-f]{6}/i)![0],
+          ),
         ),
-      ),
-  ).toEqual(["#17251e", "#233531", "#29403a", "#30514a", "#337265", "#2c3731"]);
-  await page.getByRole("radio", { name: "Perceptual", exact: true }).check();
-  await ready(page);
-  await expect(page.locator(CURRENT_POINTS)).toHaveAttribute(
-    "aria-label",
-    /Forest floor.*Perceptual space/,
-  );
-  await expect(host(page)).toHaveAttribute("data-stage-phase", "done");
-});
+    ).toEqual([
+      "#17251e",
+      "#233531",
+      "#29403a",
+      "#30514a",
+      "#337265",
+      "#2c3731",
+    ]);
+    await page.getByRole("radio", { name: "Perceptual", exact: true }).check();
+    await ready(page);
+    await expect(page.locator(CURRENT_POINTS)).toHaveAttribute(
+      "aria-label",
+      /Forest floor.*Perceptual space/,
+    );
+    await expect(host(page)).toHaveAttribute("data-stage-phase", "done");
+  },
+);
 
 test("a delayed sample cannot replace the last committed stage", async ({
   page,

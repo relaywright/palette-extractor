@@ -49,7 +49,14 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: End-to-end tests
-        run: npm run test:e2e
+        run: npx playwright test --grep-invert @timing
+        env:
+          CI: true
+
+      # Tests that measure time on the page run alone, so the rest of the
+      # suite running beside them does not decide whether they pass.
+      - name: Timing tests
+        run: npx playwright test --grep @timing --workers=1
         env:
           CI: true
 
