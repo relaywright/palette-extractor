@@ -330,6 +330,43 @@ test("a pin taken from an edited swatch's own region lands on the pin, not on th
     expect(swatch.hex).toBe(edited);
 });
 
+test("changing the sort while a pin is still being extracted keeps the edits", async ({
+  page,
+}) => {
+  await open(page, "gradient.svg", GRADIENT);
+  // A swatch far from the middle of the photo, which is what gets pinned.
+  await nudge(page, 0, "Shift+ArrowRight");
+  const edited = (await hexes(page))[0];
+  await expect(page.locator(".edit-marker")).toHaveCount(1);
+  await layer(page).focus();
+  await expect(loupeHex(page)).toBeVisible();
+  // Both in one turn of the event loop, so the pin's extraction cannot have
+  // finished before the sort changes.
+  await page.evaluate(() => {
+    const photo = document.querySelector<HTMLElement>(".photo-pick")!;
+    photo.focus();
+    photo.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "Enter",
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    const sort = document.querySelector<HTMLSelectElement>(
+      'select[aria-label="Sort palette"]',
+    )!;
+    Object.getOwnPropertyDescriptor(
+      HTMLSelectElement.prototype,
+      "value",
+    )!.set!.call(sort, "hue");
+    sort.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await expect(lockedCount(page)).toHaveCount(1);
+  await ready(page);
+  await expect(page.locator(".edit-marker")).toHaveCount(1);
+  expect(await hexes(page)).toContain(edited);
+});
+
 test("a color space change still starts the edits over", async ({ page }) => {
   await open(page, "gradient.svg", GRADIENT);
   await nudge(page, 3, "Shift+ArrowRight");

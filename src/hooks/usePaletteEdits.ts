@@ -171,6 +171,8 @@ export function usePaletteEdits(
   photo: string,
   /** The pin holding each swatch, if any, in the order of `ids`. */
   pins: (string | undefined)[],
+  /** An extraction is under way. */
+  extracting: boolean,
 ) {
   const signature = paletteSignature(extracted, photo);
   const [stored, dispatch] = useReducer(editsReducer, signature, emptyEdits);
@@ -190,8 +192,12 @@ export function usePaletteEdits(
   } as const;
   if (stale) dispatch(retarget);
   const state = stale ? editsReducer(stored, retarget) : stored;
-  // A pin that left the extracted colors as they were has nothing to carry.
-  useEffect(() => dispatch({ type: "settle" }), [extracted]);
+  // A pin's carry ends with the extraction it started, whether that changed
+  // the colors, left them as they were, or failed. Nothing else (a re-sort
+  // builds a new array of the same colors) ends it early.
+  useEffect(() => {
+    if (!extracting) dispatch({ type: "settle" });
+  }, [extracting]);
 
   const colors = useMemo(
     () => editedPalette(extracted, ids, state.edits),

@@ -223,6 +223,7 @@ export default function App() {
     swatchIds,
     loaded?.src ?? "",
     swatchPins,
+    busy,
   );
   const colors = edits.colors;
   const shownSorted = useMemo(
