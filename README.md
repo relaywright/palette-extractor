@@ -75,15 +75,16 @@ Swatches are colors from the downscaled sample, and resizing can blend neighbori
 
 ## Performance
 
-| Measure                                 | Result                                                                                                    |
-| --------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| 12 MP photo, upload to rendered palette | ~0.4 s median, ~0.8 s with 4× CPU throttling                                                              |
-| JavaScript, gzipped                     | 60 kB including React at first load; the other tool panels load on demand (4 kB) and the worker adds 1 kB |
-| CSS, gzipped                            | 7 kB                                                                                                      |
-| Lighthouse, desktop (live site)         | Performance 100 · Accessibility 100 · Best practices 100 · SEO 100                                        |
-| Lighthouse, mobile (production build)   | Performance 92 · Total blocking time 92 ms · Largest paint 2.7 s                                          |
+| Measure                                 | Result                                                                                                                  |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| 12 MP photo, upload to rendered palette | ~0.4 s median, ~0.8 s with 4× CPU throttling                                                                            |
+| JavaScript, gzipped                     | 73 kB including React at first load (budget 75 kB); the color stage (10 kB) and each tool panel (1–5 kB) load when used |
+| CSS, gzipped                            | 11 kB at first load                                                                                                     |
+| Lighthouse, desktop                     | Performance 100 · Accessibility 100 · Best practices 100 · SEO 100                                                      |
+| Lighthouse, mobile                      | Performance 95 · Accessibility 100 · Best practices 100 · SEO 100 · Total blocking time 131 ms · Largest paint 2.5 s    |
+| Lighthouse, explainer page              | Performance 99 on mobile, 100 on desktop; 100 in every other category                                                   |
 
-Extraction timings come from the production build in Chromium on an AMD Ryzen 7 5800X3D. Mobile Lighthouse figures are the median of four runs with DevTools throttling (slow 4G, 4× CPU slowdown); the build before the pixel work moved into the worker scored 85, 191 ms and 3.6 s on the same setup.
+Extraction timings come from the production build in Chromium on an AMD Ryzen 7 5800X3D. Lighthouse figures are the median of three runs on the production build in CI, where a performance score under 85 on mobile or 95 on desktop, or under 100 in any other category, fails the build; mobile runs simulate slow 4G and a 4× CPU slowdown.
 
 ## Project structure
 
@@ -91,21 +92,26 @@ Extraction timings come from the production build in Chromium on an AMD Ryzen 7 
 src/
   App.tsx            Page layout; composes the hooks below
   hooks/             Image loading, palette state, copy feedback, shared links
-  components/        Swatches, contrast, identity preview, exports, RGB cube
-  lib/               Framework-free logic: worker entry, color math,
-                     contrast, exporters, color names, share encoding
+  components/        Swatches, contrast, identity preview, exports, loupe,
+                     shade scales, error boundaries for lazy parts
+  stage/             The color stage: WebGL2 renderer, 2D fallback, timeline
+  recolor/           Live recolor: the GPU shader and its CPU fallback
+  how/               The median cut explainer page (how.html)
+  lib/               Framework-free logic: worker entry, color math, APCA,
+                     color-vision simulation, exporters, share encoding
+public/sw.js         The offline worker (each build fills in its file list)
 packages/
   median-cut/        The quantizer, published standalone as
                      @relaywright/median-cut, with its own README
-tests/
-  studio.spec.ts     End-to-end browser tests
+tests/               Browser tests, one file per feature
+scripts/             Build checks: bundle budget, service worker build
 ```
 
 ## Quality checks
 
-Every push and pull request runs [CI](.github/workflows/ci.yml): a formatting check, type checking, 62 unit tests, a production build, and 18 end-to-end browser scenarios in Chromium.
+Every push and pull request runs [CI](.github/workflows/ci.yml): a formatting check, type checking, 509 unit tests, a production build with a bundle budget (75 kB gzipped at first load), 496 browser tests in Chromium, and Lighthouse on mobile and desktop settings.
 
-Unit tests cover the quantizer, color math, contrast, exporters, color names, share links, and theme roles. Browser tests exercise uploads, drag and paste, URL loading, copy formats, downloads, sharing, pinning, keyboard tabs, reduced motion, and responsive layouts, with automated axe accessibility scans at phone, tablet, and desktop widths.
+Unit tests cover the quantizer, color math, APCA and WCAG contrast, color-vision matrices, shade scales, recoloring, exporters, color names, share links, and theme roles. Browser tests exercise uploads, drag and paste, URL loading, the live camera (with a fake device), copy formats, downloads, sharing, pinning, the loupe, recoloring, keyboard shortcuts, offline use and updates across deploys, reduced motion, both stage renderers, and responsive layouts, with automated axe accessibility scans at phone, tablet, and desktop widths.
 
 ## Privacy and architecture
 
