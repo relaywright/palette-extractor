@@ -274,6 +274,25 @@ test.describe("touch", () => {
     await expect(dim(page)).toHaveAttribute("data-dim", "off");
   });
 
+  test("a tap on one swatch wins over a mouse left resting on another", async ({
+    page,
+  }) => {
+    await open(page);
+    const name = (index: number) =>
+      page.locator(".swatch").nth(index).locator(".swatch-info span").first();
+    const color = page.locator(".swatch").nth(0).locator(".swatch-color");
+    await color.scrollIntoViewIfNeeded();
+    const box = (await color.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await expect(page.locator(".focus-note")).toHaveText(
+      `Sampled pixels near ${await name(0).innerText()}`,
+    );
+    await page.locator(".swatch").nth(2).locator(".swatch-color").tap();
+    await expect(page.locator(".focus-note")).toHaveText(
+      `Sampled pixels near ${await name(2).innerText()}`,
+    );
+  });
+
   test("a tapped swatch gives way when the keyboard moves to another", async ({
     page,
   }) => {

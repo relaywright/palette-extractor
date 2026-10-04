@@ -3,9 +3,6 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./index.css";
 import "./components/phone.css";
-import { reloadOnMissingChunk } from "./lib/chunkReload";
-
-reloadOnMissingChunk();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

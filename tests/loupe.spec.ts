@@ -183,6 +183,29 @@ async function nudge(page: Page, index: number, key: string, times = 3) {
   }
 }
 
+/** Each swatch on screen, in order: its hex, whether it is pinned, whether it is marked edited. */
+const swatchStates = (page: Page) =>
+  page.locator(".swatch").evaluateAll((swatches) =>
+    swatches.map((swatch) => ({
+      hex: swatch
+        .querySelector(".swatch-info code")!
+        .textContent!.toLowerCase(),
+      locked: !!swatch.querySelector(".lock-button.is-locked"),
+      edited: !!swatch.querySelector(".edit-marker"),
+    })),
+  );
+
+const settleFrames = (page: Page) =>
+  page.evaluate(
+    () =>
+      new Promise<void>((done) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => done())),
+      ),
+  );
+
+const channels = (hex: string) =>
+  [1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16));
+
 const inside = (
   inner: { x: number; y: number; width: number; height: number },
   outer: { x: number; y: number; width: number; height: number },
@@ -219,6 +242,37 @@ test("the loupe reads the recolored photo, and pins what it shows", async ({
   await expect(note(page)).toHaveText(`Pinned ${edited}.`);
 });
 
+test("the loupe only ever shows the recolored color while the recolor is prepared", async ({
+  page,
+}) => {
+  await open(page, "halves.svg", HALVES);
+  const red = (await hexes(page)).indexOf("#c8321e");
+  await nudge(page, red, "Shift+ArrowRight");
+  const edited = (await hexes(page))[red];
+  await photoView(page);
+  // Every hex the loupe puts on screen from here on.
+  await page.evaluate(() => {
+    const shown = new Set<string>();
+    (window as unknown as { shown: Set<string> }).shown = shown;
+    new MutationObserver(() => {
+      const text = document.querySelector(".loupe-hex")?.textContent;
+      if (text) shown.add(text.toLowerCase());
+    }).observe(document.body, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+  });
+  await layer(page).hover({ position: { x: 120, y: 160 } });
+  await expect(loupeHex(page)).toHaveText(edited);
+  await page.waitForTimeout(500);
+  expect(
+    await page.evaluate(() => [
+      ...(window as unknown as { shown: Set<string> }).shown,
+    ]),
+  ).toEqual([edited]);
+});
+
 test("pinning a color keeps the edits on the swatches that stay", async ({
   page,
 }) => {
@@ -227,7 +281,86 @@ test("pinning a color keeps the edits on the swatches that stay", async ({
   const edited = (await hexes(page))[3];
   await expect(page.locator(".edit-marker")).toHaveCount(1);
 
+  await layer(page).hover({ position: { x: 210, y: 90 } });
+  const pinnedHex = (await loupeHex(page).innerText()).toLowerCase();
   await layer(page).click({ position: { x: 210, y: 90 } });
+  await expect(lockedCount(page)).toHaveCount(1);
+  await ready(page);
+  await expect(page.locator(".edit-marker")).toHaveCount(1);
+  expect(await hexes(page)).toContain(edited);
+  // The marker and the edited color stay together, and off the new pin.
+  const after = await swatchStates(page);
+  expect(after.find((swatch) => swatch.locked)).toEqual({
+    hex: pinnedHex,
+    locked: true,
+    edited: false,
+  });
+  expect(after.find((swatch) => swatch.edited)?.hex).toBe(edited);
+});
+
+test("a pin taken from an edited swatch's own region lands on the pin, not on that edit", async ({
+  page,
+}) => {
+  await open(page, "gradient.svg", GRADIENT);
+  const extracted = (await hexes(page))[3];
+  await nudge(page, 3, "Shift+ArrowRight");
+  const edited = (await hexes(page))[3];
+  // The photo pixel closest to the swatch's extracted color.
+  const frame = (await layer(page).boundingBox())!;
+  let nearest = { hex: "", x: 0, distance: Infinity };
+  for (let step = 1; step < 20; step++) {
+    const x = (frame.width * step) / 20;
+    await layer(page).hover({ position: { x, y: 90 } });
+    await settleFrames(page);
+    const hex = (await loupeHex(page).innerText()).toLowerCase();
+    const distance = Math.hypot(
+      ...channels(hex).map((v, i) => v - channels(extracted)[i]),
+    );
+    if (distance < nearest.distance) nearest = { hex, x, distance };
+  }
+  await layer(page).click({ position: { x: nearest.x, y: 90 } });
+  await expect(lockedCount(page)).toHaveCount(1);
+  await ready(page);
+  const after = await swatchStates(page);
+  const pin = after.find((swatch) => swatch.locked)!;
+  expect(pin.hex).toBe(nearest.hex);
+  expect(pin.edited).toBe(false);
+  // Whatever edit survives is still on a swatch showing it.
+  for (const swatch of after.filter((entry) => entry.edited))
+    expect(swatch.hex).toBe(edited);
+});
+
+test("changing the sort while a pin is still being extracted keeps the edits", async ({
+  page,
+}) => {
+  await open(page, "gradient.svg", GRADIENT);
+  // A swatch far from the middle of the photo, which is what gets pinned.
+  await nudge(page, 0, "Shift+ArrowRight");
+  const edited = (await hexes(page))[0];
+  await expect(page.locator(".edit-marker")).toHaveCount(1);
+  await layer(page).focus();
+  await expect(loupeHex(page)).toBeVisible();
+  // Both in one turn of the event loop, so the pin's extraction cannot have
+  // finished before the sort changes.
+  await page.evaluate(() => {
+    const photo = document.querySelector<HTMLElement>(".photo-pick")!;
+    photo.focus();
+    photo.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "Enter",
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    const sort = document.querySelector<HTMLSelectElement>(
+      'select[aria-label="Sort palette"]',
+    )!;
+    Object.getOwnPropertyDescriptor(
+      HTMLSelectElement.prototype,
+      "value",
+    )!.set!.call(sort, "hue");
+    sort.dispatchEvent(new Event("change", { bubbles: true }));
+  });
   await expect(lockedCount(page)).toHaveCount(1);
   await ready(page);
   await expect(page.locator(".edit-marker")).toHaveCount(1);
@@ -286,6 +419,32 @@ test("keyboard picking stays on the part of the photo that shows", async ({
   }
 });
 
+test("a press on the photo released elsewhere does not turn a later drag onto the photo into a pin", async ({
+  page,
+}) => {
+  await open(page, "gradient.svg", GRADIENT);
+  const frame = (await layer(page).boundingBox())!;
+  const middle = {
+    x: frame.x + frame.width / 2,
+    y: frame.y + frame.height / 2,
+  };
+  // The page margin: bare, so a press there starts no text drag.
+  const away = { x: 6, y: middle.y };
+  // Press on the photo, drag off it and let go: the photo never sees the release.
+  await page.mouse.move(middle.x, middle.y);
+  await page.mouse.down();
+  await page.mouse.move(away.x, away.y, { steps: 6 });
+  await page.mouse.up();
+  await page.evaluate(() => getSelection()?.removeAllRanges());
+  // A later press elsewhere, dragged onto the photo, is still not a click on it.
+  await page.mouse.down();
+  await page.mouse.move(middle.x, middle.y, { steps: 6 });
+  await page.mouse.up();
+  await page.waitForTimeout(400);
+  await expect(lockedCount(page)).toHaveCount(0);
+  await expect(note(page)).toHaveText("");
+});
+
 test("the keyboard cursor keeps marking its pixel when the page resizes", async ({
   page,
 }) => {
@@ -315,6 +474,22 @@ test("the keyboard cursor keeps marking its pixel when the page resizes", async 
     })
     .toBeLessThan(2);
   await expect(loupeHex(page)).toHaveText("#c8321e");
+});
+
+test("a resize that crops the cursor's pixel moves the cursor and Enter pins what it shows", async ({
+  page,
+}) => {
+  await open(page, "gradient.svg", GRADIENT);
+  await layer(page).focus();
+  // The far left column, which a narrower frame crops away.
+  for (let i = 0; i < 12; i++) await page.keyboard.press("Shift+ArrowLeft");
+  await expect(loupeHex(page)).toBeVisible();
+  const edge = (await loupeHex(page).innerText()).toLowerCase();
+  await page.setViewportSize({ width: 420, height: 900 });
+  await expect(loupeHex(page)).not.toHaveText(edge);
+  const shown = (await loupeHex(page).innerText()).toLowerCase();
+  await page.keyboard.press("Enter");
+  await expect(note(page)).toHaveText(`Pinned ${shown}.`);
 });
 
 test("a thin photo is picked where the page shows it", async ({ page }) => {
