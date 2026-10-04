@@ -620,3 +620,48 @@ test.describe("across two different deploys", () => {
     ).toBeVisible();
   });
 });
+
+test.describe("a code chunk that has gone missing", () => {
+  // The page's own network requests are intercepted here, so the worker stays
+  // out of the way.
+  test.use({ serviceWorkers: "block" });
+
+  test("reloads once to the current build instead of leaving a dead panel", async ({
+    page,
+  }) => {
+    let blocked = 0;
+    await page.route(/\/assets\/ExportPanel-[\w-]+\.js$/, (route) => {
+      if (blocked++ === 0) return route.abort();
+      return route.continue();
+    });
+    await page.goto("/");
+    await ready(page);
+    const reloaded = page.waitForEvent("load");
+    await page.getByRole("tab", { name: "Export palette" }).click();
+    await reloaded;
+    await ready(page);
+    expect(blocked).toBe(1);
+    await page.getByRole("tab", { name: "Export palette" }).click();
+    await expect(page.locator("#panel-export")).toBeVisible();
+    await expect(page.locator(".code-preview, pre").first()).toBeVisible();
+  });
+
+  test("does not reload again when the chunk is still missing", async ({
+    page,
+  }) => {
+    await page.route(/\/assets\/ExportPanel-[\w-]+\.js$/, (route) =>
+      route.abort(),
+    );
+    let loads = 0;
+    page.on("load", () => loads++);
+    await page.goto("/");
+    await ready(page);
+    await page.getByRole("tab", { name: "Export palette" }).click();
+    await page.waitForEvent("load");
+    await ready(page);
+    await page.getByRole("tab", { name: "Export palette" }).click();
+    // The second failure surfaces instead of starting a reload loop.
+    await page.waitForTimeout(1500);
+    expect(loads).toBe(2);
+  });
+});
