@@ -336,8 +336,10 @@ export default function App() {
       if (slot < 0 || busy) return;
       selectSwatch(id);
       if (action === "adjust") return setAdjusting((open) => !open);
-      void loadNudge()
-        .then(({ nudgeEdit, stepForKey }) => {
+      // Only a failed download is caught here; the visible error line says
+      // so, since the edit the key asked for did not happen.
+      void loadNudge().then(
+        ({ nudgeEdit, stepForKey }) => {
           const step = stepForKey(action);
           edits.setEdit(
             slot,
@@ -345,12 +347,12 @@ export default function App() {
               ? (edit) => nudgeEdit(extractedColors[slot], edit, step)
               : null,
           );
-        })
-        .catch(() =>
-          copyFeedback.setNotice(
+        },
+        () =>
+          imageSource.setError(
             "Recoloring could not load. Reload the page and try again.",
           ),
-        );
+      );
     },
   };
   const resetEdits = () => {
