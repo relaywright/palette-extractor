@@ -242,6 +242,37 @@ test("the loupe reads the recolored photo, and pins what it shows", async ({
   await expect(note(page)).toHaveText(`Pinned ${edited}.`);
 });
 
+test("the loupe only ever shows the recolored color while the recolor is prepared", async ({
+  page,
+}) => {
+  await open(page, "halves.svg", HALVES);
+  const red = (await hexes(page)).indexOf("#c8321e");
+  await nudge(page, red, "Shift+ArrowRight");
+  const edited = (await hexes(page))[red];
+  await photoView(page);
+  // Every hex the loupe puts on screen from here on.
+  await page.evaluate(() => {
+    const shown = new Set<string>();
+    (window as unknown as { shown: Set<string> }).shown = shown;
+    new MutationObserver(() => {
+      const text = document.querySelector(".loupe-hex")?.textContent;
+      if (text) shown.add(text.toLowerCase());
+    }).observe(document.body, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+  });
+  await layer(page).hover({ position: { x: 120, y: 160 } });
+  await expect(loupeHex(page)).toHaveText(edited);
+  await page.waitForTimeout(500);
+  expect(
+    await page.evaluate(() => [
+      ...(window as unknown as { shown: Set<string> }).shown,
+    ]),
+  ).toEqual([edited]);
+});
+
 test("pinning a color keeps the edits on the swatches that stay", async ({
   page,
 }) => {

@@ -187,3 +187,31 @@ export function recolorPixels(
   }
   return out;
 }
+
+/** Bytes recolored per turn of the event loop by `recolorInSlices`. */
+const SLICE_BYTES = 8192 * 4;
+
+/**
+ * `recolorPixels` for a large raster that must not hold the page: one slice
+ * per turn of the event loop, then `done` with the whole result. The source
+ * is never changed. Returns a function that stops the work.
+ */
+export function recolorInSlices(
+  source: Uint8ClampedArray,
+  model: RecolorModel,
+  done: (recolored: Uint8ClampedArray<ArrayBuffer>) => void,
+  sliceBytes = SLICE_BYTES,
+): () => void {
+  const out = new Uint8ClampedArray(source.length);
+  let at = 0;
+  let timer: ReturnType<typeof setTimeout>;
+  const step = () => {
+    const end = Math.min(source.length, at + sliceBytes);
+    out.set(recolorPixels(source.subarray(at, end), model), at);
+    at = end;
+    if (at < source.length) timer = setTimeout(step);
+    else done(out);
+  };
+  timer = setTimeout(step);
+  return () => clearTimeout(timer);
+}

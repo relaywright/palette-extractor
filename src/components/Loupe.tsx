@@ -24,7 +24,11 @@ import {
   swatchOwning,
   visiblePixels,
 } from "../lib/pick";
-import { buildModel, recolorPixels, type RecolorModel } from "../recolor/math";
+import {
+  buildModel,
+  recolorInSlices,
+  type RecolorModel,
+} from "../recolor/math";
 import { swatchForGroup } from "../lib/stageGroups";
 import type { Fit } from "./photoFit";
 import "./touch.css";
@@ -138,22 +142,38 @@ export default function Loupe({
     return base.current.data;
   }, [hero, samples, width, height]);
 
-  // The same pixels through the recolor, as the page shows them.
+  // The same pixels through the recolor, as the page shows them. Recoloring a
+  // whole raster takes long enough to be felt, so with edits on it is done a
+  // slice at a time once a pick needs it (below); until then there is no view
+  // and the loupe stays hidden, rather than showing a color the page does not.
+  const [, finished] = useState(0);
+  const showing = useCallback(
+    (recolored: ImageData) => {
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      canvas.getContext("2d")?.putImageData(recolored, 0, 0);
+      seen.current = { samples, model, canvas, data: recolored };
+      return seen.current;
+    },
+    [samples, model, width, height],
+  );
   const view = useCallback(() => {
     if (seen.current?.samples === samples && seen.current.model === model)
       return seen.current;
     const data = original();
-    if (!data) return null;
-    const recolored = model
-      ? new ImageData(recolorPixels(data.data, model), width, height)
-      : data;
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    canvas.getContext("2d")?.putImageData(recolored, 0, 0);
-    seen.current = { samples, model, canvas, data: recolored };
-    return seen.current;
-  }, [original, samples, model, width, height]);
+    return data && !model ? showing(data) : null;
+  }, [original, showing, samples, model]);
+  const engaged = pick !== null;
+  useEffect(() => {
+    if (!model || !engaged || view()) return;
+    const data = original();
+    if (!data) return;
+    return recolorInSlices(data.data, model, (recolored) => {
+      showing(new ImageData(recolored, width, height));
+      finished((count) => count + 1);
+    });
+  }, [model, engaged, view, original, showing, width, height]);
 
   const readAt = useCallback(
     (x: number, y: number): { seen: RGB; original: RGB } | null => {
@@ -172,6 +192,7 @@ export default function Loupe({
     [original, view, width],
   );
 
+  const shown = view();
   const read = pick ? readAt(pick.x, pick.y) : null;
   const color = read?.seen ?? null;
   const owner =
@@ -197,8 +218,7 @@ export default function Loupe({
   }, [owner]);
 
   useEffect(() => {
-    const element = zoom.current,
-      shown = view();
+    const element = zoom.current;
     const context = element?.getContext("2d");
     if (!element || !context || !shown || !pick) return;
     context.imageSmoothingEnabled = false;
@@ -215,7 +235,7 @@ export default function Loupe({
       SIZE,
       SIZE,
     );
-  }, [pick, view]);
+  }, [pick, shown]);
 
   useEffect(
     () => () => {
@@ -279,7 +299,10 @@ export default function Loupe({
   };
   const pin = (x: number, y: number) => {
     const picked = readAt(x, y)?.seen;
-    if (!picked) return;
+    if (!picked) {
+      if (model && !view()) say(MESSAGES.busy(""));
+      return;
+    }
     say(MESSAGES[onPin(picked)](rgbToHex(picked)));
   };
 

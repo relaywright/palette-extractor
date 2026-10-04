@@ -1,6 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RGB } from "../lib/color";
-import { buildModel, recolorColor, recolorPixels } from "./math";
+import {
+  buildModel,
+  recolorColor,
+  recolorInSlices,
+  recolorPixels,
+} from "./math";
 import { oklchToRgb, rgbToOklch } from "./oklab";
 
 const palette: RGB[] = [
@@ -105,5 +110,49 @@ describe("recolor with an edit", () => {
     )!;
     const out = recolorPixels(testImage(), single);
     expect(out.every((v) => v >= 0 && v <= 255)).toBe(true);
+  });
+});
+
+describe("recoloring in slices", () => {
+  const model = buildModel(palette, [
+    palette[0],
+    { r: 180, g: 60, b: 160 },
+    palette[2],
+    palette[3],
+  ])!;
+
+  afterEach(() => vi.useRealTimers());
+
+  it("gives what one pass gives, a slice at a time", () => {
+    vi.useFakeTimers();
+    const image = testImage();
+    const done = vi.fn();
+    recolorInSlices(image, model, done, 8 * 4);
+    // Nothing runs until the first turn of the event loop.
+    expect(done).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(0);
+    expect(done).not.toHaveBeenCalled();
+    vi.runAllTimers();
+    expect(done).toHaveBeenCalledTimes(1);
+    expect(done.mock.calls[0][0]).toEqual(recolorPixels(image, model));
+  });
+
+  it("never recolors the source it was given", () => {
+    vi.useFakeTimers();
+    const image = testImage();
+    const before = image.slice();
+    recolorInSlices(image, model, () => {}, 8 * 4);
+    vi.runAllTimers();
+    expect(image).toEqual(before);
+  });
+
+  it("stops when cancelled and reports nothing", () => {
+    vi.useFakeTimers();
+    const done = vi.fn();
+    const cancel = recolorInSlices(testImage(), model, done, 8 * 4);
+    vi.advanceTimersByTime(1);
+    cancel();
+    vi.runAllTimers();
+    expect(done).not.toHaveBeenCalled();
   });
 });
