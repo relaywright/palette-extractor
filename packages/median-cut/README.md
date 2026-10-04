@@ -99,3 +99,6 @@ needed for the output.
 
 See it running on real images at the
 [Palette Extractor live demo](https://palette-extractor.relaywright.workers.dev/).
+[How median cut works](https://palette-extractor.relaywright.workers.dev/how.html)
+runs this package on your own photo and steps through every split, with
+histograms, population against volume scoring, and the OKLab option.
