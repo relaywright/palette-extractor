@@ -761,6 +761,26 @@ test.describe("across two different deploys", () => {
         await expect(notice(page)).toHaveCount(0);
       });
 
+    test("Reload page on an untouched sample brings the sample back, photo and all", async ({
+      page,
+    }) => {
+      await failOnce(page, /\/assets\/ExportPanel-[\w-]+\.js$/);
+      await visit(page);
+      await page.getByRole("tab", { name: "Export palette" }).click();
+      await expect(notice(page)).toContainText(
+        "This part of the app could not load.",
+      );
+      await expect(notice(page)).not.toContainText("photo will need");
+      const reloaded = page.waitForEvent("load");
+      await reloadButton(page).click();
+      await reloaded;
+      expect(page.url()).not.toContain("#p=");
+      await ready(page);
+      await expect(page.locator(".image-caption > span").first()).toHaveText(
+        "Golden dunes",
+      );
+    });
+
     test("a tab on an older deploy offers a newer version and reloads into it only when asked", async ({
       page,
     }) => {

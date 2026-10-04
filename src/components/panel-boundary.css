@@ -22,7 +22,8 @@
    phone's tab bar (--tab-bar is only set there). */
 .panel-notices {
   position: fixed;
-  inset: auto 16px calc(var(--tab-bar, 0px) + 16px) auto;
+  inset: auto 16px
+    calc(var(--tab-bar, 0px) + env(safe-area-inset-bottom, 0px) + 16px) auto;
   z-index: 40;
   display: flex;
   flex-direction: column;
