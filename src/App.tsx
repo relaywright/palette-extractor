@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import sunset from "./assets/sample.svg";
 import { type ValueKind } from "./components/Swatch";
 import {
@@ -32,9 +32,11 @@ import { SwatchEditsContext } from "./recolor/swatchEdits";
 import type { StageResult } from "./components/Stage";
 import { stageUnavailable } from "./stage/handoff";
 import type { CameraStatus } from "./hooks/useCamera";
+import { PanelBoundary } from "./components/PanelBoundary";
+import { retryableLazy } from "./lib/retryableLazy";
 
 const loadStage = () => import("./components/Stage");
-const Stage = lazy(loadStage);
+const Stage = retryableLazy(loadStage);
 
 // Resolves once the browser reports the photo as the page's largest paint, so
 // the stage download does not compete with it. Browsers that do not report
@@ -71,36 +73,35 @@ const afterLargestPaint = (image: HTMLImageElement) =>
 
 // "In context" is the default tab. The other tool panels stay off screen
 // until picked, so their code loads in separate chunks.
-const ContrastPanel = lazy(() =>
-  import("./components/ContrastPanel").then((m) => ({
-    default: m.ContrastPanel,
-  })),
+const ContrastPanel = retryableLazy(
+  () => import("./components/ContrastPanel"),
+  "ContrastPanel",
 );
-const PixelSpace = lazy(() =>
-  import("./components/PixelSpace").then((m) => ({ default: m.PixelSpace })),
+const PixelSpace = retryableLazy(
+  () => import("./components/PixelSpace"),
+  "PixelSpace",
 );
-const ExportPanel = lazy(() =>
-  import("./components/ExportPanel").then((m) => ({
-    default: m.ExportPanel,
-  })),
+const ExportPanel = retryableLazy(
+  () => import("./components/ExportPanel"),
+  "ExportPanel",
 );
 
-const ShortcutSheet = lazy(() =>
-  import("./components/ShortcutSheet").then((m) => ({
-    default: m.ShortcutSheet,
-  })),
+const ShortcutSheet = retryableLazy(
+  () => import("./components/ShortcutSheet"),
+  "ShortcutSheet",
 );
 // Recoloring loads on the first edit, so a first visit never downloads it.
-const RecolorLayer = lazy(() => import("./components/RecolorLayer"));
+const RecolorLayer = retryableLazy(() => import("./components/RecolorLayer"));
 const loadNudge = () => import("./recolor/nudge");
-const AdjustPanel = lazy(() =>
-  import("./components/AdjustPanel").then((m) => ({ default: m.AdjustPanel })),
+const AdjustPanel = retryableLazy(
+  () => import("./components/AdjustPanel"),
+  "AdjustPanel",
 );
 // The camera and the phone's tool sheet only load once they are used.
-const CameraCapture = lazy(() => import("./components/CameraCapture"));
-const BottomSheet = lazy(() => import("./components/BottomSheet"));
-const SpaceCompare = lazy(() => import("./components/SpaceCompare"));
-const PhotoTools = lazy(() => import("./components/PhotoTools"));
+const CameraCapture = retryableLazy(() => import("./components/CameraCapture"));
+const BottomSheet = retryableLazy(() => import("./components/BottomSheet"));
+const SpaceCompare = retryableLazy(() => import("./components/SpaceCompare"));
+const PhotoTools = retryableLazy(() => import("./components/PhotoTools"));
 
 const samples: Source[] = [
   {
@@ -506,28 +507,30 @@ export default function App() {
           onCopy={copy}
         />
       )}
-      <Suspense fallback={null}>
-        {activeTab === "contrast" && <ContrastPanel palette={colors} />}
-        {activeTab === "algorithm" && (
-          <PixelSpace
-            samples={palette.detail.samples}
-            steps={palette.detail.steps}
-            colorSpace={palette.detailColorSpace}
-          />
-        )}
-        {activeTab === "export" && (
-          <ExportPanel
-            palette={colors}
-            format={format}
-            onFormatChange={(value) => {
-              setFormat(value);
-              copyFeedback.setCopied(null);
-            }}
-            onCopy={(text) => copy(text, "export")}
-            copied={copied === "export"}
-          />
-        )}
-      </Suspense>
+      <PanelBoundary resetKey={activeTab}>
+        <Suspense fallback={null}>
+          {activeTab === "contrast" && <ContrastPanel palette={colors} />}
+          {activeTab === "algorithm" && (
+            <PixelSpace
+              samples={palette.detail.samples}
+              steps={palette.detail.steps}
+              colorSpace={palette.detailColorSpace}
+            />
+          )}
+          {activeTab === "export" && (
+            <ExportPanel
+              palette={colors}
+              format={format}
+              onFormatChange={(value) => {
+                setFormat(value);
+                copyFeedback.setCopied(null);
+              }}
+              onCopy={(text) => copy(text, "export")}
+              copied={copied === "export"}
+            />
+          )}
+        </Suspense>
+      </PanelBoundary>
     </div>
   );
 
@@ -670,14 +673,16 @@ export default function App() {
                 </div>
               )}
               {edits.touched && loaded && (
-                <Suspense fallback={null}>
-                  <RecolorLayer
-                    image={hero}
-                    src={loaded.src}
-                    original={extractedColors}
-                    edited={colors}
-                  />
-                </Suspense>
+                <PanelBoundary floating>
+                  <Suspense fallback={null}>
+                    <RecolorLayer
+                      image={hero}
+                      src={loaded.src}
+                      original={extractedColors}
+                      edited={colors}
+                    />
+                  </Suspense>
+                </PanelBoundary>
               )}
               <div
                 ref={stageHost}
@@ -689,31 +694,36 @@ export default function App() {
                 data-stage-frames="0"
               >
                 {stageReady && stageResult && (
-                  <Suspense fallback={null}>
-                    <Stage
-                      result={stageResult}
-                      host={stageHost}
-                      hero={hero}
-                      overlay={(focus) => (
-                        <Suspense fallback={null}>
-                          <PhotoTools
-                            samples={stageResult.samples}
-                            swatches={stageResult.swatches}
-                            colors={colors}
-                            focus={focus}
-                            hero={hero}
-                            onPin={(color) => {
-                              const outcome = palette.pinColor(color);
-                              // Pinning re-extracts around the new color; the
-                              // swatches that survive keep their edits.
-                              if (outcome === "pinned") edits.carryThroughPin();
-                              return outcome;
-                            }}
-                          />
-                        </Suspense>
-                      )}
-                    />
-                  </Suspense>
+                  <PanelBoundary floating>
+                    <Suspense fallback={null}>
+                      <Stage
+                        result={stageResult}
+                        host={stageHost}
+                        hero={hero}
+                        overlay={(focus) => (
+                          <PanelBoundary floating>
+                            <Suspense fallback={null}>
+                              <PhotoTools
+                                samples={stageResult.samples}
+                                swatches={stageResult.swatches}
+                                colors={colors}
+                                focus={focus}
+                                hero={hero}
+                                onPin={(color) => {
+                                  const outcome = palette.pinColor(color);
+                                  // Pinning re-extracts around the new color; the
+                                  // swatches that survive keep their edits.
+                                  if (outcome === "pinned")
+                                    edits.carryThroughPin();
+                                  return outcome;
+                                }}
+                              />
+                            </Suspense>
+                          </PanelBoundary>
+                        )}
+                      />
+                    </Suspense>
+                  </PanelBoundary>
                 )}
               </div>
               {busy && camera === "off" && (
@@ -722,26 +732,28 @@ export default function App() {
                 </span>
               )}
               {camera !== "off" && (
-                <Suspense fallback={null}>
-                  <CameraCapture
-                    request={{
-                      count: Math.max(1, count - locked.length),
-                      exclude: locked,
-                      colorSpace,
-                    }}
-                    onStatus={setCamera}
-                    onFrame={palette.applyLive}
-                    onFreeze={(photo) => {
-                      setCamera("off");
-                      imageSource.loadFile(photo);
-                    }}
-                    onClose={(message) => {
-                      setCamera("off");
-                      if (message) copyFeedback.setNotice(message);
-                    }}
-                    onUpload={() => fileInput.current?.click()}
-                  />
-                </Suspense>
+                <PanelBoundary floating>
+                  <Suspense fallback={null}>
+                    <CameraCapture
+                      request={{
+                        count: Math.max(1, count - locked.length),
+                        exclude: locked,
+                        colorSpace,
+                      }}
+                      onStatus={setCamera}
+                      onFrame={palette.applyLive}
+                      onFreeze={(photo) => {
+                        setCamera("off");
+                        imageSource.loadFile(photo);
+                      }}
+                      onClose={(message) => {
+                        setCamera("off");
+                        if (message) copyFeedback.setNotice(message);
+                      }}
+                      onUpload={() => fileInput.current?.click()}
+                    />
+                  </Suspense>
+                </PanelBoundary>
               )}
               <div className="image-caption">
                 <span>
@@ -818,15 +830,17 @@ export default function App() {
               </SwatchEditsContext.Provider>
             </fieldset>
             {adjusting && !busy && selectedIndex >= 0 && (
-              <Suspense fallback={null}>
-                <AdjustPanel
-                  name={names[selectedIndex]}
-                  original={extractedColors[selectedIndex]}
-                  edit={edits.current[selectedIndex]}
-                  onChange={(next) => edits.setEdit(selectedIndex, next)}
-                  onClose={() => setAdjusting(false)}
-                />
-              </Suspense>
+              <PanelBoundary>
+                <Suspense fallback={null}>
+                  <AdjustPanel
+                    name={names[selectedIndex]}
+                    original={extractedColors[selectedIndex]}
+                    edit={edits.current[selectedIndex]}
+                    onChange={(next) => edits.setEdit(selectedIndex, next)}
+                    onClose={() => setAdjusting(false)}
+                  />
+                </Suspense>
+              </PanelBoundary>
             )}
             <div className="palette-toolbar">
               <div
@@ -922,13 +936,15 @@ export default function App() {
             )}
             {loaded && compareOpen && (
               <div id="space-compare">
-                <Suspense fallback={null}>
-                  <SpaceCompare
-                    src={loaded.src}
-                    locked={locked}
-                    count={count}
-                  />
-                </Suspense>
+                <PanelBoundary>
+                  <Suspense fallback={null}>
+                    <SpaceCompare
+                      src={loaded.src}
+                      locked={locked}
+                      count={count}
+                    />
+                  </Suspense>
+                </PanelBoundary>
               </div>
             )}
           </section>
@@ -1044,16 +1060,20 @@ export default function App() {
             ))}
           </div>
           {phone ? (
-            <Suspense fallback={null}>
-              <BottomSheet
-                open={toolSheetOpen}
-                title={tabs.find((tab) => tab.id === activeTab)!.label}
-                onClose={() => setToolSheetOpen(false)}
-                returnFocus={() => document.getElementById(`tab-${activeTab}`)}
-              >
-                {toolPanel}
-              </BottomSheet>
-            </Suspense>
+            <PanelBoundary floating>
+              <Suspense fallback={null}>
+                <BottomSheet
+                  open={toolSheetOpen}
+                  title={tabs.find((tab) => tab.id === activeTab)!.label}
+                  onClose={() => setToolSheetOpen(false)}
+                  returnFocus={() =>
+                    document.getElementById(`tab-${activeTab}`)
+                  }
+                >
+                  {toolPanel}
+                </BottomSheet>
+              </Suspense>
+            </PanelBoundary>
           ) : (
             toolPanel
           )}
@@ -1076,9 +1096,11 @@ export default function App() {
         {notice}
       </span>
       {sheetOpen && (
-        <Suspense fallback={null}>
-          <ShortcutSheet onClose={() => setSheetOpen(false)} />
-        </Suspense>
+        <PanelBoundary floating>
+          <Suspense fallback={null}>
+            <ShortcutSheet onClose={() => setSheetOpen(false)} />
+          </Suspense>
+        </PanelBoundary>
       )}
       <CvdFilters />
       {dragging && (

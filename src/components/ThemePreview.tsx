@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from "react";
+import { Suspense, useState } from "react";
 import { type RGB, rgbToHex, labelColorFor } from "../lib/color";
 import {
   type RolePicks,
@@ -8,12 +8,12 @@ import {
   resolveRoles,
 } from "../lib/theme";
 import { Icon } from "./Icon";
+import { PanelBoundary } from "./PanelBoundary";
+import { retryableLazy } from "../lib/retryableLazy";
 import { formatRatio } from "../lib/contrast";
 import "./theme-preview.css";
 
-const ThemeTools = lazy(() =>
-  import("./ThemeTools").then((m) => ({ default: m.ThemeTools })),
-);
+const ThemeTools = retryableLazy(() => import("./ThemeTools"), "ThemeTools");
 
 const levelOf = (ratio: number) =>
   ratio >= 7 ? "AAA" : ratio >= 4.5 ? "AA" : "Below AA for body text";
@@ -108,17 +108,19 @@ export function ThemePreview({
           <p className="accent-note">
             Accent on surface {formatRatio(roles.accentRatio)}:1
           </p>
-          <Suspense fallback={null}>
-            <ThemeTools
-              key={scope}
-              palette={palette}
-              roles={roles}
-              onAssign={assign}
-              onReset={() => setPicks({ scope, picks: {} })}
-              copied={copied}
-              onCopy={onCopy}
-            />
-          </Suspense>
+          <PanelBoundary>
+            <Suspense fallback={null}>
+              <ThemeTools
+                key={scope}
+                palette={palette}
+                roles={roles}
+                onAssign={assign}
+                onReset={() => setPicks({ scope, picks: {} })}
+                copied={copied}
+                onCopy={onCopy}
+              />
+            </Suspense>
+          </PanelBoundary>
         </div>
       </div>
       <div

@@ -13,6 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import { extname, join, resolve } from "node:path";
 import { test, expect, type Page } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
 import { imageSize, ready } from "./helpers";
 import { writeServiceWorker } from "../scripts/sw-build.mjs";
 
@@ -620,6 +621,154 @@ test.describe("across two different deploys", () => {
       page.getByRole("link", { name: /palette tool/ }),
     ).toBeVisible();
   });
+
+  // The page's own requests are intercepted here, so the worker stays out of
+  // the way.
+  test.describe("a code chunk that fails to load", () => {
+    test.use({ serviceWorkers: "block" });
+
+    const exportTab = (page: Page) =>
+      page.getByRole("tab", { name: "Export palette" });
+    // A shared script keeps its name across the two copies of the site, which
+    // a real deploy would rename, so the browser must not keep it.
+    test.beforeEach(() => {
+      uncached = true;
+    });
+    const visit = async (page: Page) => {
+      await page.goto(origin);
+      await ready(page);
+    };
+    const loadsOf = (page: Page) => {
+      const count = { loads: 0 };
+      page.on("load", () => count.loads++);
+      return count;
+    };
+
+    test("a dropped connection leaves the app up and a retry loads the panel", async ({
+      page,
+    }) => {
+      let blocked = false;
+      await page.route(/\/assets\/ExportPanel-[\w-]+\.js$/, (route) => {
+        if (blocked) return route.continue();
+        blocked = true;
+        return route.abort();
+      });
+      await visit(page);
+      await page.evaluate(() => {
+        (window as unknown as { sameDocument: boolean }).sameDocument = true;
+      });
+      const count = loadsOf(page);
+      await exportTab(page).click();
+      const notice = page.getByText(
+        "This part could not load. Check your connection, then try again.",
+      );
+      await expect(notice).toBeVisible();
+      // The page was not replaced: its state, and the rest of the app, stay.
+      await page.waitForTimeout(1000);
+      expect(count.loads).toBe(0);
+      expect(
+        await page.evaluate(
+          () => (window as unknown as { sameDocument?: boolean }).sameDocument,
+        ),
+      ).toBe(true);
+      await expect(page.locator(".swatch")).toHaveCount(6);
+      const violations = (
+        await new AxeBuilder({ page })
+          .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
+          .analyze()
+      ).violations;
+      expect(violations).toEqual([]);
+      await page.getByRole("button", { name: "Try again" }).click();
+      await expect(page.locator("html")).toHaveAttribute("data-build", "one");
+      await expect(notice).toHaveCount(0);
+    });
+
+    test("a part that opens over the page shows its notice as a card the page can dismiss", async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: 390, height: 800 });
+      await page.route(/\/assets\/ShortcutSheet-[\w-]+\.js$/, (route) =>
+        route.abort(),
+      );
+      await visit(page);
+      await page.keyboard.press("?");
+      const notice = page.getByText("This part could not load", {
+        exact: false,
+      });
+      await expect(notice).toBeVisible();
+      const violations = (
+        await new AxeBuilder({ page })
+          .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
+          .analyze()
+      ).violations;
+      expect(violations).toEqual([]);
+      await page.getByRole("button", { name: "Dismiss" }).click();
+      await expect(notice).toHaveCount(0);
+      await expect(page.locator(".swatch")).toHaveCount(6);
+    });
+
+    test("a tab on an older deploy reloads once into the current one", async ({
+      page,
+    }) => {
+      await visit(page);
+      expect(await entry(page)).toContain("/main-one.js");
+      current = "two";
+      missing = new Set(["/assets/ExportPanel-one.js"]);
+      const count = loadsOf(page);
+      const reloaded = page.waitForEvent("load");
+      await exportTab(page).click();
+      await reloaded;
+      await ready(page);
+      expect(await entry(page)).toContain("/main-two.js");
+      await exportTab(page).click();
+      await expect(page.locator("html")).toHaveAttribute("data-build", "two");
+      await page.waitForTimeout(1000);
+      expect(count.loads).toBe(1);
+    });
+
+    test("a panel missing from the current deploy too does not start a reload loop", async ({
+      page,
+    }) => {
+      await visit(page);
+      current = "two";
+      missing = new Set([
+        "/assets/ExportPanel-one.js",
+        "/assets/ExportPanel-two.js",
+      ]);
+      const count = loadsOf(page);
+      const reloaded = page.waitForEvent("load");
+      await exportTab(page).click();
+      await reloaded;
+      await ready(page);
+      await exportTab(page).click();
+      await expect(
+        page.getByText("This part could not load", { exact: false }),
+      ).toBeVisible();
+      await page.waitForTimeout(1500);
+      expect(count.loads).toBe(1);
+    });
+
+    test("a build that already caused a reload is never reloaded for again", async ({
+      page,
+    }) => {
+      await visit(page);
+      current = "two";
+      missing = new Set(["/assets/ExportPanel-one.js"]);
+      await page.evaluate((origin) => {
+        sessionStorage.setItem(
+          `reloaded-for:${origin}/assets/main-two.js`,
+          "1",
+        );
+      }, origin);
+      const count = loadsOf(page);
+      await exportTab(page).click();
+      await expect(
+        page.getByText("This part could not load", { exact: false }),
+      ).toBeVisible();
+      await page.waitForTimeout(1000);
+      expect(count.loads).toBe(0);
+    });
+  });
 });
 
 test.describe("when the worker is turned off with a new deploy", () => {
@@ -730,50 +879,5 @@ test.describe("when the worker is turned off with a new deploy", () => {
       })),
     ).toEqual({ registrations: 0, controlled: false });
     await expect(page.locator(".swatch")).toHaveCount(6);
-  });
-});
-
-test.describe("a code chunk that has gone missing", () => {
-  // The page's own network requests are intercepted here, so the worker stays
-  // out of the way.
-  test.use({ serviceWorkers: "block" });
-
-  test("reloads once to the current build instead of leaving a dead panel", async ({
-    page,
-  }) => {
-    let blocked = 0;
-    await page.route(/\/assets\/ExportPanel-[\w-]+\.js$/, (route) => {
-      if (blocked++ === 0) return route.abort();
-      return route.continue();
-    });
-    await page.goto("/");
-    await ready(page);
-    const reloaded = page.waitForEvent("load");
-    await page.getByRole("tab", { name: "Export palette" }).click();
-    await reloaded;
-    await ready(page);
-    expect(blocked).toBe(1);
-    await page.getByRole("tab", { name: "Export palette" }).click();
-    await expect(page.locator("#panel-export")).toBeVisible();
-    await expect(page.locator(".code-preview, pre").first()).toBeVisible();
-  });
-
-  test("does not reload again when the chunk is still missing", async ({
-    page,
-  }) => {
-    await page.route(/\/assets\/ExportPanel-[\w-]+\.js$/, (route) =>
-      route.abort(),
-    );
-    let loads = 0;
-    page.on("load", () => loads++);
-    await page.goto("/");
-    await ready(page);
-    await page.getByRole("tab", { name: "Export palette" }).click();
-    await page.waitForEvent("load");
-    await ready(page);
-    await page.getByRole("tab", { name: "Export palette" }).click();
-    // The second failure surfaces instead of starting a reload loop.
-    await page.waitForTimeout(1500);
-    expect(loads).toBe(2);
   });
 });

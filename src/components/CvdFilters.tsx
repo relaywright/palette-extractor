@@ -1,5 +1,7 @@
-import { lazy, Suspense, useSyncExternalStore } from "react";
+import { Suspense, useSyncExternalStore } from "react";
 import type { CvdType } from "../lib/cvd";
+import { retryableLazy } from "../lib/retryableLazy";
+import { PanelBoundary } from "./PanelBoundary";
 
 export type CvdMode = "none" | CvdType;
 
@@ -25,14 +27,16 @@ export function useCvd(): CvdMode {
   );
 }
 
-const CvdFilterDefs = lazy(() => import("./CvdFilterDefs"));
+const CvdFilterDefs = retryableLazy(() => import("./CvdFilterDefs"));
 
 export function CvdFilters() {
   const active = useCvd();
   if (active === "none") return null;
   return (
-    <Suspense fallback={null}>
-      <CvdFilterDefs mode={active} onOff={() => setCvd("none")} />
-    </Suspense>
+    <PanelBoundary floating>
+      <Suspense fallback={null}>
+        <CvdFilterDefs mode={active} onOff={() => setCvd("none")} />
+      </Suspense>
+    </PanelBoundary>
   );
 }

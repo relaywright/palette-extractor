@@ -1,0 +1,27 @@
+.panel-boundary {
+  display: grid;
+  gap: 12px;
+  justify-items: start;
+  padding: 16px;
+  border: 1px solid #3c3f41;
+  border-radius: 8px;
+  background: #1a1d1f;
+  color: #c9c8c3;
+  font-size: 14px;
+  line-height: 1.45;
+}
+.panel-boundary p {
+  margin: 0;
+}
+.panel-boundary-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.panel-boundary.floating {
+  position: fixed;
+  inset: auto 16px 16px auto;
+  z-index: 40;
+  max-width: min(360px, calc(100vw - 32px));
+  box-shadow: 0 6px 24px #0008;
+}
