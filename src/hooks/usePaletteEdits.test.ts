@@ -135,4 +135,58 @@ describe("palette edits", () => {
     expect(hexSet(shown)).toEqual(["#ffffff", "#ffffff"]);
     expect(shown[1]).toBe(pair[1]);
   });
+
+  describe("across a pin", () => {
+    const photo = "photo.jpg";
+    const next = paletteSignature(extracted.slice(1), photo);
+    const retarget = (
+      state: EditState,
+      signature: string,
+      swatchIds: string[],
+      forPhoto = photo,
+    ) =>
+      editsReducer(state, {
+        type: "retarget",
+        signature,
+        photo: forPhoto,
+        ids: swatchIds,
+      });
+
+    it("keeps the edits of the swatches that are still there", () => {
+      let state = edit(edit(emptyEdits(signature), 0, 0.3), 1, 0.8);
+      state = editsReducer(state, { type: "pin", photo });
+      const after = retarget(state, next, ["swatch-2", "swatch-4"]);
+      expect(Object.keys(after.edits)).toEqual(["swatch-2"]);
+      expect(after.edits["swatch-2"]).toBe(state.edits["swatch-2"]);
+      expect(after.signature).toBe(next);
+      expect(after.touched).toBe(true);
+      expect(after.carrying).toBeNull();
+    });
+
+    it("drops them without a pin", () => {
+      const state = edit(emptyEdits(signature), 1, 0.8);
+      const after = retarget(state, next, ["swatch-2", "swatch-4"]);
+      expect(after.edits).toEqual({});
+      expect(after.touched).toBe(false);
+    });
+
+    it("drops them when the photo changed after the pin", () => {
+      let state = edit(emptyEdits(signature), 1, 0.8);
+      state = editsReducer(state, { type: "pin", photo });
+      const after = retarget(
+        state,
+        paletteSignature(extracted, "other.jpg"),
+        ids,
+        "other.jpg",
+      );
+      expect(after.edits).toEqual({});
+    });
+
+    it("carries once: a pin that changed nothing does not leak into later changes", () => {
+      let state = edit(emptyEdits(signature), 1, 0.8);
+      state = editsReducer(state, { type: "pin", photo });
+      state = editsReducer(state, { type: "settle" });
+      expect(retarget(state, next, ids).edits).toEqual({});
+    });
+  });
 });
