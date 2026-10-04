@@ -360,3 +360,44 @@ test("the live video is color-vision simulated once, under the photo", async ({
   );
   await expect(page.locator(".source-frame > img")).toHaveCSS("filter", "none");
 });
+
+test("pinning a color on a steady camera frame shows at once, and so does unpinning", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await ready(page);
+  await startCamera(page);
+  await expect
+    .poll(async () => hasNear(await paletteHexes(page), FIRST_HALF), {
+      timeout: 15000,
+    })
+    .toBe(true);
+  // Pausing the video holds one frame, so every sample after it is identical
+  // and a steady frame is dropped without rebuilding the palette.
+  await page
+    .locator(".camera-video")
+    .evaluate((el: HTMLVideoElement) => el.pause());
+  // A sample already in flight, and the melt after it, can still land.
+  let held = await paletteHexes(page);
+  await expect
+    .poll(
+      async () => {
+        const before = held;
+        await page.waitForTimeout(600);
+        held = await paletteHexes(page);
+        return held.join() === before.join();
+      },
+      { timeout: 10000 },
+    )
+    .toBe(true);
+
+  const first = page.locator(".lock-button").first();
+  await first.click();
+  await expect(first).toHaveAttribute("aria-pressed", "true", {
+    timeout: 1500,
+  });
+  await first.click();
+  await expect(first).toHaveAttribute("aria-pressed", "false", {
+    timeout: 1500,
+  });
+});

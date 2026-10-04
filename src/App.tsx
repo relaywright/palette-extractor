@@ -208,7 +208,7 @@ export default function App() {
   // Swatch identities come from the extracted colors, so an edit never moves
   // one swatch's identity onto another. Everything below that shows or
   // exports the palette reads the edited colors.
-  const identity = usePresentation(sorted, loaded);
+  const identity = usePresentation(sorted, loaded, palette.locks);
   const swatchIds = useMemo(
     () => identity.swatches.map((swatch) => swatch.id),
     [identity],

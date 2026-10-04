@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { test, expect, type Page } from "@playwright/test";
 import { ready } from "./helpers";
 
@@ -148,6 +149,62 @@ for (const which of ["first", "second"] as const) {
     ).toHaveAttribute("aria-label", "Copy #ee5533");
   });
 }
+
+// An unreadable file fails extraction and leaves the old palette on screen;
+// the pin buttons must still follow the locks the user has set since.
+test("pin buttons follow the locks after a failed extraction", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await ready(page);
+  const pressed = page.locator('.lock-button[aria-pressed="true"]');
+  const lock = (index: number) => page.locator(".lock-button").nth(index);
+
+  await lock(0).click();
+  await ready(page);
+  await lock(1).click();
+  await ready(page);
+  await expect(pressed).toHaveCount(2);
+
+  await page.locator("input[type=file]").setInputFiles({
+    name: "broken.png",
+    mimeType: "image/png",
+    buffer: randomBytes(2048),
+  });
+  await expect(page.locator(".error-banner")).toBeVisible();
+  await expect(pressed).toHaveCount(2);
+
+  await page.getByRole("button", { name: "Unlock all", exact: true }).click();
+  await expect(pressed).toHaveCount(0);
+  await expect(page.locator(".lock-button")).toHaveCount(6);
+
+  // A single pin made and undone after the failure shows at once.
+  await lock(2).click();
+  await expect(lock(2)).toHaveAttribute("aria-pressed", "true");
+  await expect(pressed).toHaveCount(1);
+  const kept = (await hexes(page))[2];
+  await lock(2).click();
+  await expect(pressed).toHaveCount(0);
+  await lock(2).click();
+  await expect(pressed).toHaveCount(1);
+
+  // The next photo keeps exactly the pinned color, so the display and the
+  // lock list agree.
+  await page.locator("input[type=file]").setInputFiles({
+    name: "four.svg",
+    mimeType: "image/svg+xml",
+    buffer: fourColors,
+  });
+  await ready(page);
+  await expect(page.locator(".error-banner")).toHaveCount(0);
+  await expect(pressed).toHaveCount(1);
+  const pinnedAt = await page
+    .locator(".lock-button")
+    .evaluateAll((els) =>
+      els.findIndex((el) => el.getAttribute("aria-pressed") === "true"),
+    );
+  expect((await hexes(page))[pinnedAt]).toBe(kept);
+});
 
 test("an accent assigned to a color stays on it when the palette is sorted", async ({
   page,
