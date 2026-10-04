@@ -1,6 +1,13 @@
 import { test, expect } from "@playwright/test";
 import { ready, stageDone } from "./helpers";
-import { noAxeViolations, photoView, WIDTHS } from "./touch-checks";
+import {
+  hexes,
+  noAxeViolations,
+  photoView,
+  QUARTERS,
+  upload,
+  WIDTHS,
+} from "./touch-checks";
 
 const dim = (page: import("@playwright/test").Page) =>
   page.locator(".photo-dim");
@@ -82,6 +89,120 @@ test("the lit pixels match the swatch's share of the samples", async ({
     expect(Math.abs((mask.samples / mask.total) * 100 - weight)).toBeLessThan(
       1.5,
     );
+  }
+});
+
+// Four flat quarters, so which pixels belong to each swatch is known without
+// asking the app: a pixel belongs to the swatch whose color it is.
+const QUARTER_OF: Record<string, [number, number]> = {
+  "#c8321e": [0, 0],
+  "#1e64c8": [1, 0],
+  "#2a9d5c": [0, 1],
+  "#f4c300": [1, 1],
+};
+
+test("the drawn dim lights the swatch's quarter and nothing else", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await ready(page);
+  await stageDone(page);
+  await upload(page, "quarters.svg", QUARTERS);
+  await photoView(page);
+  const colors = await hexes(page);
+  expect(colors.sort()).toEqual(Object.keys(QUARTER_OF).sort());
+
+  for (const [i, hex] of (await hexes(page)).entries()) {
+    await page.locator(".swatch").nth(i).hover();
+    await expect(dim(page)).toHaveAttribute("data-dim", "on");
+    const drawn = await dim(page).evaluate(
+      (canvas: HTMLCanvasElement, quarter: [number, number]) => {
+        // The photo is 600 by 330, held at 320 by 176 for the quantizer.
+        const photo = { width: 600, height: 330 };
+        const work = { width: 320, height: 176 };
+        const { width: w, height: h } = canvas;
+        const { data } = canvas.getContext("2d")!.getImageData(0, 0, w, h);
+        const scale = Math.max(w / photo.width, h / photo.height);
+        const offsetX = (w - photo.width * scale) / 2;
+        const offsetY = (h - photo.height * scale) / 2;
+        // Samples sit one in every few pixels, and a pixel's lit share counts
+        // the samples within this many working pixels of it. Pixels farther
+        // than that (plus a pixel of resampling) from a quarter's edge must
+        // be fully lit or fully dimmed; closer ones may fall anywhere between.
+        const samples = Number(canvas.dataset.totalSamples);
+        const radius = Math.max(
+          1,
+          Math.round(Math.sqrt((work.width * work.height) / samples) * 1.5),
+        );
+        const band = radius + 1.5;
+        const scrim = Math.round(255 * 0.72);
+        let wrong = 0,
+          litInside = 0,
+          dimmedOutside = 0,
+          weight = 0,
+          sumX = 0,
+          sumY = 0;
+        for (let y = 0; y < h; y++)
+          for (let x = 0; x < w; x++) {
+            const alpha = data[4 * (y * w + x) + 3];
+            const lit = 1 - alpha / scrim;
+            weight += lit;
+            sumX += lit * x;
+            sumY += lit * y;
+            const u = (x + 0.5 - offsetX) / scale / photo.width;
+            const v = (y + 0.5 - offsetY) / scale / photo.height;
+            const edge = Math.min(
+              Math.abs(u - 0.5) * work.width,
+              Math.abs(v - 0.5) * work.height,
+            );
+            if (edge <= band) continue;
+            const inside =
+              u < 0.5 === (quarter[0] === 0) && v < 0.5 === (quarter[1] === 0);
+            if (inside) {
+              litInside++;
+              if (alpha > 4) wrong++;
+            } else {
+              dimmedOutside++;
+              if (alpha < scrim - 4) wrong++;
+            }
+          }
+        // Where the quarter's visible part is, in canvas pixels.
+        const span = (
+          index: number,
+          size: number,
+          offset: number,
+          total: number,
+        ) => {
+          const from = Math.max(0, offset + index * (size / 2) * scale);
+          const to = Math.min(total, offset + (index + 1) * (size / 2) * scale);
+          return [from, to];
+        };
+        const [x0, x1] = span(quarter[0], photo.width, offsetX, w);
+        const [y0, y1] = span(quarter[1], photo.height, offsetY, h);
+        return {
+          wrong,
+          litInside,
+          dimmedOutside,
+          lit: weight / (w * h),
+          expected: ((x1 - x0) * (y1 - y0)) / (w * h),
+          centroidX: sumX / weight / w,
+          centroidY: sumY / weight / h,
+          expectedX: (x0 + x1) / 2 / w,
+          expectedY: (y0 + y1) / 2 / h,
+        };
+      },
+      QUARTER_OF[hex],
+    );
+    // Both sides of the edge were actually checked.
+    expect(drawn.litInside).toBeGreaterThan(1000);
+    expect(drawn.dimmedOutside).toBeGreaterThan(1000);
+    expect(drawn.wrong, `${hex}: pixels away from the edge`).toBe(0);
+    // The lit area is the quarter's area, within 2%, and sits where it does.
+    expect(Math.abs(drawn.lit - drawn.expected)).toBeLessThanOrEqual(
+      drawn.expected * 0.02,
+    );
+    expect(Math.abs(drawn.centroidX - drawn.expectedX)).toBeLessThan(0.015);
+    expect(Math.abs(drawn.centroidY - drawn.expectedY)).toBeLessThan(0.015);
   }
 });
 
