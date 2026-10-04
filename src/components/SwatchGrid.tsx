@@ -16,6 +16,7 @@ import {
   settledAt,
   type ColorTimeline,
 } from "../lib/morph";
+import { pinOn, type Lock } from "../lib/locks";
 import { paletteColorNames } from "../lib/names";
 import { fillSlots, holdSlots } from "../stage/handoff";
 import { Swatch, type ValueKind } from "./Swatch";
@@ -23,12 +24,14 @@ import { Swatch, type ValueKind } from "./Swatch";
 export interface PaletteEntry {
   color: RGB;
   population: number;
+  /** The pin holding this color, if it is pinned. */
+  lockId?: string;
 }
 export interface PresentedSwatch extends PaletteEntry {
   /** Stays with the swatch through sorts, recounts and recolors. */
   id: string;
-  /** The swatch survived and its color changed. */
-  retarget: boolean;
+  /** The color the swatch was extracted with; `color` is the one it shows. */
+  extracted: RGB;
 }
 export interface Presentation {
   swatches: PresentedSwatch[];
@@ -43,22 +46,25 @@ const empty: Presentation = { swatches: [], finalColors: false, photo: 0 };
 /**
  * Matches each new palette to the swatches on screen, so surviving swatches
  * keep their IDs. Plans are made against the last committed palette only, so
- * a render React throws away never leaves a half-applied match behind.
+ * a render React throws away never leaves a half-applied match behind. Give
+ * it the extracted colors, not the edited ones: an edit that makes a color
+ * equal its neighbor's must not trade their IDs.
+ *
+ * Which swatches show as pinned is read from `locks` on every render, not
+ * from the palette: a palette that failed to refresh, or a camera frame that
+ * was dropped as unchanged, still shows the pins the user has set since.
  */
 export function usePresentation(
   sorted: PaletteEntry[],
   loaded: object | null,
-  lockedSet: Set<string>,
+  locks: Lock[],
 ): Presentation {
   const committed = useRef({
     presentation: empty,
     loaded: null as object | null,
   });
   const lastId = useRef(0);
-  // Locks only matter at the moment a new palette arrives, so they are read
-  // here rather than listed as a reason to plan again.
-  const isLocked = (color: RGB) => lockedSet.has(rgbToHex(color));
-  const presentation = useMemo(() => {
+  const planned = useMemo(() => {
     const previous = committed.current;
     // Displayed colors live in the grid's animation loop; matching only
     // needs targets, and the grid melts from whatever is on screen.
@@ -67,11 +73,13 @@ export function usePresentation(
         id: swatch.id,
         rgb: swatch.color,
         target: swatch.color,
-        locked: isLocked(swatch.color),
+        locked: swatch.lockId !== undefined,
+        lockId: swatch.lockId,
       })),
       sorted.map((entry) => ({
         rgb: entry.color,
-        locked: isLocked(entry.color),
+        locked: entry.lockId !== undefined,
+        lockId: entry.lockId,
       })),
       () => `swatch-${++lastId.current}`,
     );
@@ -80,13 +88,24 @@ export function usePresentation(
       swatches: plan.items.map((item, slot) => ({
         id: item.id,
         color: item.to,
+        extracted: item.to,
         population: sorted[slot].population,
-        retarget: item.retarget,
+        lockId: sorted[slot].lockId,
       })),
       finalColors,
       photo: previous.presentation.photo + (finalColors ? 1 : 0),
     };
   }, [sorted, loaded]);
+  const presentation = useMemo(
+    () => ({
+      ...planned,
+      swatches: planned.swatches.map((swatch) => ({
+        ...swatch,
+        lockId: pinOn(locks, swatch),
+      })),
+    }),
+    [planned, locks],
+  );
   useLayoutEffect(() => {
     committed.current = { presentation, loaded };
   }, [presentation, loaded]);
@@ -113,6 +132,24 @@ class BeforeUpdate extends Component<{
   }
 }
 
+/** The presentation showing `colors` (in swatch order) in place of the extracted ones. */
+export function withColors(
+  presentation: Presentation,
+  colors: RGB[],
+): Presentation {
+  if (
+    presentation.swatches.every((swatch, i) => colors[i] === swatch.extracted)
+  )
+    return presentation;
+  return {
+    ...presentation,
+    swatches: presentation.swatches.map((swatch, i) => ({
+      ...swatch,
+      color: colors[i],
+    })),
+  };
+}
+
 const reducedMotion = () =>
   matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -128,7 +165,6 @@ export function SwatchGrid({
   valueKind,
   total,
   showWeights,
-  lockedSet,
   canLock,
   changedHexes,
   copied,
@@ -141,12 +177,11 @@ export function SwatchGrid({
   valueKind: ValueKind;
   total: number;
   showWeights: boolean;
-  lockedSet: Set<string>;
   canLock: boolean;
   changedHexes: Set<string>;
   copied: string | null;
   onCopy: (text: string, key: string) => void;
-  onToggleLock: (color: RGB) => void;
+  onToggleLock: (id: string) => void;
   selectedId: string | null;
   onSelect: (id: string) => void;
 }) {
@@ -192,7 +227,7 @@ export function SwatchGrid({
         swatch.id,
         reduced || presentation.finalColors || !running
           ? settledAt(swatch.color)
-          : swatch.retarget
+          : rgbToHex(running.to) !== rgbToHex(swatch.color)
             ? {
                 from: shown.current.get(swatch.id) ?? colorAt(running, now),
                 to: swatch.color,
@@ -327,17 +362,17 @@ export function SwatchGrid({
     >
       <BeforeUpdate watch={presentation} onBefore={measure}>
         {presentation.swatches.map((swatch, i) => {
-          const hex = rgbToHex(swatch.color);
+          const hex = rgbToHex(swatch.extracted);
           return (
             <Swatch
               key={swatch.id}
               id={swatch.id}
               color={swatch.color}
               index={i}
-              locked={lockedSet.has(hex)}
+              locked={swatch.lockId !== undefined}
               weight={total ? swatch.population / total : 0}
               name={names[i]}
-              onToggleLock={() => onToggleLock(swatch.color)}
+              onToggleLock={() => onToggleLock(swatch.id)}
               valueKind={valueKind}
               onCopy={onCopy}
               copied={copied}

@@ -285,6 +285,9 @@ for (const width of [390, 768, 1440]) {
     await ready(page);
     await page.evaluate(() => document.fonts.ready);
     await settled(page);
+    // On a phone the identity panel opens as a sheet from the tab bar.
+    if (width === 390)
+      await page.getByRole("tab", { name: "In context" }).click();
     const sticker = page.locator(".brand-sticker");
     await sticker.scrollIntoViewIfNeeded();
     // Rotation turns about the center, so it cannot move text in or out of

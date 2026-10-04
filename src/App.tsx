@@ -1,9 +1,14 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import sunset from "./assets/sample.svg";
 import { type ValueKind } from "./components/Swatch";
-import { SwatchGrid, usePresentation } from "./components/SwatchGrid";
+import {
+  SwatchGrid,
+  usePresentation,
+  withColors,
+} from "./components/SwatchGrid";
 import { ThemePreview } from "./components/ThemePreview";
 import { Atmosphere } from "./components/Atmosphere";
+import { CvdFilters } from "./components/CvdFilters";
 import { Icon } from "./components/Icon";
 import {
   type RGB,
@@ -16,17 +21,22 @@ import {
 import { type ExportFormat, exportPalette } from "./lib/exporters";
 import { nearestColorName, paletteColorNames } from "./lib/names";
 import { encodePaletteHash } from "./lib/share";
-import { downloadBlob, renderPaletteCard } from "./lib/paletteCard";
 import { useImageSource, type Source } from "./hooks/useImageSource";
 import { usePalette } from "./hooks/usePalette";
 import { useColorSpaceComparison } from "./hooks/useColorSpaceComparison";
 import { useCopyFeedback } from "./hooks/useCopyFeedback";
 import { useSharedPalette } from "./hooks/useSharedPalette";
+import { useShortcuts } from "./hooks/useShortcuts";
+import { usePaletteEdits } from "./hooks/usePaletteEdits";
+import { SwatchEditsContext } from "./recolor/swatchEdits";
 import type { StageResult } from "./components/Stage";
 import { stageUnavailable } from "./stage/handoff";
+import type { CameraStatus } from "./hooks/useCamera";
+import { PanelBoundary, ReloadPalette } from "./components/PanelBoundary";
+import { lazyPanel } from "./lib/lazyPanel";
 
 const loadStage = () => import("./components/Stage");
-const Stage = lazy(loadStage);
+const Stage = lazyPanel(loadStage);
 
 // Resolves once the browser reports the photo as the page's largest paint, so
 // the stage download does not compete with it. Browsers that do not report
@@ -63,19 +73,35 @@ const afterLargestPaint = (image: HTMLImageElement) =>
 
 // "In context" is the default tab. The other tool panels stay off screen
 // until picked, so their code loads in separate chunks.
-const ContrastPanel = lazy(() =>
-  import("./components/ContrastPanel").then((m) => ({
-    default: m.ContrastPanel,
-  })),
+const ContrastPanel = lazyPanel(
+  () => import("./components/ContrastPanel"),
+  "ContrastPanel",
 );
-const PixelSpace = lazy(() =>
-  import("./components/PixelSpace").then((m) => ({ default: m.PixelSpace })),
+const PixelSpace = lazyPanel(
+  () => import("./components/PixelSpace"),
+  "PixelSpace",
 );
-const ExportPanel = lazy(() =>
-  import("./components/ExportPanel").then((m) => ({
-    default: m.ExportPanel,
-  })),
+const ExportPanel = lazyPanel(
+  () => import("./components/ExportPanel"),
+  "ExportPanel",
 );
+
+const ShortcutSheet = lazyPanel(
+  () => import("./components/ShortcutSheet"),
+  "ShortcutSheet",
+);
+// Recoloring loads on the first edit, so a first visit never downloads it.
+const RecolorLayer = lazyPanel(() => import("./components/RecolorLayer"));
+const loadNudge = () => import("./recolor/nudge");
+const AdjustPanel = lazyPanel(
+  () => import("./components/AdjustPanel"),
+  "AdjustPanel",
+);
+// The camera and the phone's tool sheet only load once they are used.
+const CameraCapture = lazyPanel(() => import("./components/CameraCapture"));
+const BottomSheet = lazyPanel(() => import("./components/BottomSheet"));
+const SpaceCompare = lazyPanel(() => import("./components/SpaceCompare"));
+const PhotoTools = lazyPanel(() => import("./components/PhotoTools"));
 
 const samples: Source[] = [
   {
@@ -127,6 +153,11 @@ export default function App() {
   const [valueKind, setValueKind] = useState<ValueKind>("hex");
   const [format, setFormat] = useState<ExportFormat>("css");
   const [activeTab, setActiveTab] = useState<Tab>("context");
+  const [sheetOpen, setSheetOpen] = useState(false);
+  // On phones the chosen tool opens as a sheet; it starts closed.
+  const [toolSheetOpen, setToolSheetOpen] = useState(false);
+  const [camera, setCamera] = useState<"off" | CameraStatus>("off");
+  const [compareOpen, setCompareOpen] = useState(false);
   // A selection lasts while its swatch does, until the next new photo.
   const [selection, setSelection] = useState<{
     id: string;
@@ -148,6 +179,7 @@ export default function App() {
   const palette = usePalette({
     source: imageSource.source,
     urlBusy: imageSource.urlBusy,
+    live: camera === "live",
     initialColors: shared,
     setLoaded: imageSource.setLoaded,
     setError: imageSource.setError,
@@ -158,9 +190,8 @@ export default function App() {
     imageSource;
   const {
     sorted,
-    colors,
+    colors: extractedColors,
     total,
-    lockedSet,
     count,
     locked,
     sort,
@@ -175,6 +206,40 @@ export default function App() {
     changedHexes,
   );
   const { copied, notice } = copyFeedback;
+  // Swatch identities come from the extracted colors, so an edit never moves
+  // one swatch's identity onto another. Everything below that shows or
+  // exports the palette reads the edited colors.
+  const identity = usePresentation(sorted, loaded, palette.locks);
+  const swatchIds = useMemo(
+    () => identity.swatches.map((swatch) => swatch.id),
+    [identity],
+  );
+  const swatchPins = useMemo(
+    () => identity.swatches.map((swatch) => swatch.lockId),
+    [identity],
+  );
+  const edits = usePaletteEdits(
+    extractedColors,
+    swatchIds,
+    loaded?.src ?? "",
+    swatchPins,
+    busy,
+  );
+  const colors = edits.colors;
+  const shownSorted = useMemo(
+    () =>
+      colors === extractedColors
+        ? sorted
+        : sorted.map((entry, i) => ({ ...entry, color: colors[i] })),
+    [sorted, colors, extractedColors],
+  );
+  const [adjusting, setAdjusting] = useState(false);
+  // Any other photo (upload, drop, paste, URL, freeze) ends the camera.
+  useEffect(() => setCamera("off"), [source]);
+  const liveCamera = camera === "live";
+  const canCamera = !!navigator.mediaDevices?.getUserMedia;
+  // An upload, URL or camera photo, as opposed to a bundled sample.
+  const ownPhoto = !!source && !samples.some((s) => s.src === source.src);
   const hero = useRef<HTMLImageElement>(null);
   const stageHost = useRef<HTMLDivElement>(null);
   const [stageReady, setStageReady] = useState(false);
@@ -233,7 +298,10 @@ export default function App() {
     [loaded, palette.detail, palette.detailColorSpace, sorted],
   );
 
-  const presentation = usePresentation(sorted, loaded, lockedSet);
+  const presentation = useMemo(
+    () => withColors(identity, colors),
+    [identity, colors],
+  );
   // The inspector falls back to the first swatch; the swatches must agree.
   const selectedSwatch =
     (selection?.photo === presentation.photo &&
@@ -249,10 +317,104 @@ export default function App() {
     ? names[presentation.swatches.indexOf(selectedSwatch)]
     : nearestColorName(inspected);
   const showWeights = !!loaded && locked.length === 0;
+  const selectedIndex = selectedSwatch
+    ? presentation.swatches.indexOf(selectedSwatch)
+    : -1;
+  const slotOf = (id: string) =>
+    presentation.swatches.findIndex((swatch) => swatch.id === id);
+  const selectSwatch = (id: string) =>
+    setSelection({ id, photo: presentation.photo });
+  const swatchEdits = {
+    edited: new Set(
+      presentation.swatches
+        .filter((_, i) => colors[i] !== extractedColors[i])
+        .map((swatch) => swatch.id),
+    ),
+    adjusting,
+    act: (id: string, action: string) => {
+      const slot = slotOf(id);
+      if (slot < 0 || busy) return;
+      selectSwatch(id);
+      if (action === "adjust") return setAdjusting((open) => !open);
+      // Only a failed download is caught here; the visible error line says
+      // so, since the edit the key asked for did not happen.
+      void loadNudge().then(
+        ({ nudgeEdit, stepForKey }) => {
+          const step = stepForKey(action);
+          edits.setEdit(
+            slot,
+            step
+              ? (edit) => nudgeEdit(extractedColors[slot], edit, step)
+              : null,
+          );
+        },
+        () =>
+          imageSource.setError(
+            "Recoloring could not load. Reload the page and try again.",
+          ),
+      );
+    },
+  };
+  const resetEdits = () => {
+    edits.resetAll();
+    copyFeedback.setNotice("Colors reset to the extracted palette.");
+    requestAnimationFrame(() =>
+      document
+        .querySelector<HTMLElement>(".swatch.selected .swatch-select")
+        ?.focus(),
+    );
+  };
+  // A pin belongs to the swatch's extracted color, which stays put when the
+  // swatch is edited, and to the swatch itself, so a repeated color unpins
+  // only the copy that was clicked.
+  const toggleLock = (id: string) => {
+    const slot = slotOf(id);
+    if (slot >= 0)
+      palette.toggleLock(
+        presentation.swatches[slot].lockId ?? id,
+        extractedColors[slot],
+      );
+  };
 
+  const panelShown = !phone || toolSheetOpen;
   const copy = (text: string, key: string) => void copyFeedback.copy(text, key);
+  // Each shortcut does what its button does, so the button shows the
+  // confirmation. Returns whether the key was used.
+  useShortcuts((action) => {
+    if (action.type === "help") {
+      setSheetOpen(true);
+      return true;
+    }
+    if (busy) return false;
+    if (action.type === "select") {
+      const swatch = presentation.swatches[action.index];
+      if (!swatch) return false;
+      setSelection({ id: swatch.id, photo: presentation.photo });
+      return true;
+    }
+    if (!selectedSwatch) return false;
+    if (action.type === "copy-value") {
+      const value =
+        valueKind === "hex"
+          ? rgbToHex(selectedSwatch.color)
+          : valueKind === "rgb"
+            ? formatRgb(selectedSwatch.color)
+            : formatHsl(rgbToHsl(selectedSwatch.color));
+      copy(value, `swatch ${selectedSwatch.id} ${value}`);
+    } else if (action.type === "copy-palette")
+      copy(exportPalette(colors, format), "dock");
+    else
+      copy(
+        location.origin + location.pathname + encodePaletteHash(colors),
+        "share",
+      );
+    return true;
+  });
   const saveCard = async () => {
     try {
+      const { downloadBlob, renderPaletteCard } = await import(
+        "./lib/paletteCard"
+      );
       const blob = await renderPaletteCard(
         colors.map((color, index) => ({ color, name: names[index] })),
         loaded?.name ?? "Shared palette",
@@ -273,6 +435,20 @@ export default function App() {
     >
       <Icon name="upload" /> Upload image
     </button>
+  );
+  const captureActions = (
+    <div className="capture-actions">
+      {uploadButton}
+      {canCamera && (
+        <button
+          className="button secondary camera-main"
+          disabled={camera !== "off"}
+          onClick={() => setCamera("starting")}
+        >
+          <Icon name="image" /> Use camera
+        </button>
+      )}
+    </div>
   );
   const sourceControls = (
     <>
@@ -335,6 +511,51 @@ export default function App() {
     </>
   );
 
+  const toolPanel = (
+    <div
+      role="tabpanel"
+      id={`panel-${activeTab}`}
+      aria-labelledby={`tab-${activeTab}`}
+      className="tool-panel"
+      tabIndex={0}
+    >
+      {activeTab === "context" && (
+        <ThemePreview
+          palette={colors}
+          swatchIds={swatchIds}
+          extraction={edits.signature}
+          image={loaded?.src ?? null}
+          copied={copied}
+          onCopy={copy}
+        />
+      )}
+      <PanelBoundary resetKey={activeTab}>
+        <Suspense fallback={null}>
+          {activeTab === "contrast" && <ContrastPanel palette={colors} />}
+          {activeTab === "algorithm" && (
+            <PixelSpace
+              samples={palette.detail.samples}
+              steps={palette.detail.steps}
+              colorSpace={palette.detailColorSpace}
+            />
+          )}
+          {activeTab === "export" && (
+            <ExportPanel
+              palette={colors}
+              format={format}
+              onFormatChange={(value) => {
+                setFormat(value);
+                copyFeedback.setCopied(null);
+              }}
+              onCopy={(text) => copy(text, "export")}
+              copied={copied === "export"}
+            />
+          )}
+        </Suspense>
+      </PanelBoundary>
+    </div>
+  );
+
   return (
     <div className="app-shell">
       <a className="skip-link" href="#workspace">
@@ -376,7 +597,7 @@ export default function App() {
             </h1>
             <p>Find the colors worth keeping. Make something with them.</p>
           </div>
-          {!phone && uploadButton}
+          {!phone && captureActions}
         </section>
         <input
           ref={fileInput}
@@ -473,6 +694,18 @@ export default function App() {
                   </button>
                 </div>
               )}
+              {edits.touched && loaded && (
+                <PanelBoundary floating resetKey={loaded.src}>
+                  <Suspense fallback={null}>
+                    <RecolorLayer
+                      image={hero}
+                      src={loaded.src}
+                      original={extractedColors}
+                      edited={colors}
+                    />
+                  </Suspense>
+                </PanelBoundary>
+              )}
               <div
                 ref={stageHost}
                 className="stage-host"
@@ -483,23 +716,85 @@ export default function App() {
                 data-stage-frames="0"
               >
                 {stageReady && stageResult && (
-                  <Suspense fallback={null}>
-                    <Stage result={stageResult} host={stageHost} hero={hero} />
-                  </Suspense>
+                  <PanelBoundary floating resetKey={stageResult.image.src}>
+                    <Suspense fallback={null}>
+                      <Stage
+                        result={stageResult}
+                        host={stageHost}
+                        hero={hero}
+                        overlay={(focus) => (
+                          <PanelBoundary
+                            floating
+                            resetKey={stageResult.image.src}
+                          >
+                            <Suspense fallback={null}>
+                              <PhotoTools
+                                samples={stageResult.samples}
+                                swatches={stageResult.swatches}
+                                colors={colors}
+                                focus={focus}
+                                hero={hero}
+                                onPin={(color) => {
+                                  const outcome = palette.pinColor(color);
+                                  // Pinning re-extracts around the new color; the
+                                  // swatches that survive keep their edits.
+                                  if (outcome === "pinned")
+                                    edits.carryThroughPin();
+                                  return outcome;
+                                }}
+                              />
+                            </Suspense>
+                          </PanelBoundary>
+                        )}
+                      />
+                    </Suspense>
+                  </PanelBoundary>
                 )}
               </div>
-              {busy && (
+              {busy && camera === "off" && (
                 <span className="processing-badge">
                   <i /> Finding your colors…
                 </span>
               )}
+              {camera !== "off" && (
+                <PanelBoundary
+                  floating
+                  resetKey={camera}
+                  onDismiss={() => setCamera("off")}
+                >
+                  <Suspense fallback={null}>
+                    <CameraCapture
+                      request={{
+                        count: Math.max(1, count - locked.length),
+                        exclude: locked,
+                        colorSpace,
+                      }}
+                      onStatus={setCamera}
+                      onFrame={palette.applyLive}
+                      onFreeze={(photo) => {
+                        setCamera("off");
+                        imageSource.loadFile(photo);
+                      }}
+                      onClose={(message) => {
+                        setCamera("off");
+                        if (message) copyFeedback.setNotice(message);
+                      }}
+                      onUpload={() => fileInput.current?.click()}
+                    />
+                  </Suspense>
+                </PanelBoundary>
+              )}
               <div className="image-caption">
                 <span>
-                  {loaded?.name ??
-                    (shared && !source ? "Shared palette" : source?.name)}
+                  {liveCamera
+                    ? "Live camera"
+                    : (loaded?.name ??
+                      (shared && !source ? "Shared palette" : source?.name))}
                 </span>
                 <span>
-                  {loaded?.credit ? (
+                  {liveCamera ? (
+                    "Tap to freeze"
+                  ) : loaded?.credit ? (
                     <a href={loaded.creditUrl} target="_blank" rel="noreferrer">
                       Photo / {loaded.credit}
                     </a>
@@ -545,23 +840,37 @@ export default function App() {
               disabled={busy}
             >
               <legend className="sr-only">Extracted colors</legend>
-              <SwatchGrid
-                presentation={presentation}
-                valueKind={valueKind}
-                total={total}
-                showWeights={showWeights}
-                lockedSet={lockedSet}
-                canLock={!!source}
-                changedHexes={changedHexes}
-                copied={copied}
-                onCopy={copy}
-                onToggleLock={palette.toggleLock}
-                selectedId={selectedSwatch?.id ?? null}
-                onSelect={(id) =>
-                  setSelection({ id, photo: presentation.photo })
-                }
-              />
+              <SwatchEditsContext.Provider value={swatchEdits}>
+                <SwatchGrid
+                  presentation={presentation}
+                  valueKind={valueKind}
+                  total={total}
+                  showWeights={showWeights}
+                  canLock={!!source}
+                  changedHexes={changedHexes}
+                  copied={copied}
+                  onCopy={copy}
+                  onToggleLock={toggleLock}
+                  selectedId={selectedSwatch?.id ?? null}
+                  onSelect={(id) =>
+                    setSelection({ id, photo: presentation.photo })
+                  }
+                />
+              </SwatchEditsContext.Provider>
             </fieldset>
+            {adjusting && !busy && selectedIndex >= 0 && (
+              <PanelBoundary>
+                <Suspense fallback={null}>
+                  <AdjustPanel
+                    name={names[selectedIndex]}
+                    original={extractedColors[selectedIndex]}
+                    edit={edits.current[selectedIndex]}
+                    onChange={(next) => edits.setEdit(selectedIndex, next)}
+                    onClose={() => setAdjusting(false)}
+                  />
+                </Suspense>
+              </PanelBoundary>
+            )}
             <div className="palette-toolbar">
               <div
                 className="count-control"
@@ -599,10 +908,15 @@ export default function App() {
                   <option value="luminance">By lightness</option>
                 </select>
               </label>
+              {colors !== extractedColors && (
+                <button className="text-button" onClick={resetEdits}>
+                  Reset to extracted
+                </button>
+              )}
               {locked.length > 0 && source && (
                 <button
                   className="text-button"
-                  onClick={() => palette.setLocked([])}
+                  onClick={() => palette.setLocks([])}
                   disabled={busy}
                 >
                   Unlock all
@@ -616,7 +930,7 @@ export default function App() {
                 showWeights ? "Relative color distribution" : "Palette colors"
               }
             >
-              {sorted.map((e, i) => (
+              {shownSorted.map((e, i) => (
                 <i
                   key={i}
                   style={{
@@ -638,11 +952,35 @@ export default function App() {
                 colors.length < count &&
                 "This image has fewer distinct colors than requested."}
             </p>
+            {source && (
+              <button
+                className="text-button"
+                disabled={!loaded}
+                aria-expanded={compareOpen}
+                aria-controls="space-compare"
+                onClick={() => setCompareOpen(!compareOpen)}
+              >
+                {compareOpen ? "Hide comparison" : "Compare RGB and Perceptual"}
+              </button>
+            )}
+            {loaded && compareOpen && (
+              <div id="space-compare">
+                <PanelBoundary>
+                  <Suspense fallback={null}>
+                    <SpaceCompare
+                      src={loaded.src}
+                      locked={locked}
+                      count={count}
+                    />
+                  </Suspense>
+                </PanelBoundary>
+              </div>
+            )}
           </section>
         </div>
         {phone && (
           <div className="phone-source-controls">
-            {uploadButton}
+            {captureActions}
             {sourceControls}
           </div>
         )}
@@ -714,10 +1052,16 @@ export default function App() {
                 key={tab.id}
                 role="tab"
                 id={`tab-${tab.id}`}
-                aria-selected={activeTab === tab.id}
+                aria-selected={panelShown && activeTab === tab.id}
                 aria-controls={`panel-${tab.id}`}
                 tabIndex={activeTab === tab.id ? 0 : -1}
-                onClick={() => setActiveTab(tab.id)}
+                onClick={() => {
+                  // On a phone, choosing the open tab again closes its sheet.
+                  setToolSheetOpen(
+                    !(phone && toolSheetOpen && activeTab === tab.id),
+                  );
+                  setActiveTab(tab.id);
+                }}
                 onKeyDown={(e) => {
                   const next =
                     e.key === "ArrowRight"
@@ -744,39 +1088,24 @@ export default function App() {
               </button>
             ))}
           </div>
-          <div
-            role="tabpanel"
-            id={`panel-${activeTab}`}
-            aria-labelledby={`tab-${activeTab}`}
-            className="tool-panel"
-            tabIndex={0}
-          >
-            {activeTab === "context" && (
-              <ThemePreview palette={colors} image={loaded?.src ?? null} />
-            )}
-            <Suspense fallback={null}>
-              {activeTab === "contrast" && <ContrastPanel palette={colors} />}
-              {activeTab === "algorithm" && (
-                <PixelSpace
-                  samples={palette.detail.samples}
-                  steps={palette.detail.steps}
-                  colorSpace={palette.detailColorSpace}
-                />
-              )}
-              {activeTab === "export" && (
-                <ExportPanel
-                  palette={colors}
-                  format={format}
-                  onFormatChange={(value) => {
-                    setFormat(value);
-                    copyFeedback.setCopied(null);
-                  }}
-                  onCopy={() => copy(exportPalette(colors, format), "export")}
-                  copied={copied === "export"}
-                />
-              )}
-            </Suspense>
-          </div>
+          {phone ? (
+            <PanelBoundary resetKey={`${toolSheetOpen}:${activeTab}`}>
+              <Suspense fallback={null}>
+                <BottomSheet
+                  open={toolSheetOpen}
+                  title={tabs.find((tab) => tab.id === activeTab)!.label}
+                  onClose={() => setToolSheetOpen(false)}
+                  returnFocus={() =>
+                    document.getElementById(`tab-${activeTab}`)
+                  }
+                >
+                  {toolPanel}
+                </BottomSheet>
+              </Suspense>
+            </PanelBoundary>
+          ) : (
+            toolPanel
+          )}
         </section>
       </main>
       <footer className="site-footer">
@@ -795,6 +1124,19 @@ export default function App() {
       <span className="sr-only" role="status" aria-live="polite">
         {notice}
       </span>
+      {sheetOpen && (
+        <PanelBoundary floating onDismiss={() => setSheetOpen(false)}>
+          <Suspense fallback={null}>
+            <ShortcutSheet onClose={() => setSheetOpen(false)} />
+          </Suspense>
+        </PanelBoundary>
+      )}
+      <CvdFilters />
+      <ReloadPalette
+        colors={colors}
+        keep={!source || ownPhoto || edits.touched || locked.length > 0}
+        ownPhoto={ownPhoto}
+      />
       {dragging && (
         <div className="drop-overlay">
           <Icon name="upload" size={44} />

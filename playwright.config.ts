@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "@playwright/test";
 
 // Tests get their own ports and never reuse a running server, so a dev server
@@ -9,6 +10,10 @@ const devPort = Number(process.env.E2E_DEV_PORT ?? 5183);
 const previewPort = Number(process.env.E2E_PREVIEW_PORT ?? 4183);
 const DEV = `http://127.0.0.1:${devPort}`;
 const PREVIEW = `http://127.0.0.1:${previewPort}`;
+// A short clip whose colors change halfway, played in a loop as the camera.
+const CAMERA_CLIP = fileURLToPath(
+  new URL("./tests/fixtures/camera.y4m", import.meta.url),
+);
 const preview = `npm run preview -- --host 127.0.0.1 --port ${previewPort} --strictPort`;
 
 export default defineConfig({
@@ -31,7 +36,27 @@ export default defineConfig({
       testIgnore: [
         /stage-(prod|webgl|no-webgl)\.spec\.ts/,
         /\.modes\.spec\.ts$/,
+        /(camera|offline)\.spec\.ts/,
       ],
+    },
+    {
+      name: "camera",
+      testMatch: "camera.spec.ts",
+      use: {
+        launchOptions: {
+          executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE,
+          args: [
+            "--use-fake-device-for-media-stream",
+            "--use-fake-ui-for-media-stream",
+            `--use-file-for-fake-video-capture=${CAMERA_CLIP}`,
+          ],
+        },
+      },
+    },
+    {
+      name: "offline",
+      testMatch: "offline.spec.ts",
+      use: { baseURL: PREVIEW },
     },
     {
       name: "stage-prod",

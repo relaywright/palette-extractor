@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
-import { checkBundle } from "./check-bundle.mjs";
+import { checkBundle, reportLines } from "./check-bundle.mjs";
 
 const KB = 1024;
 const budgets = { firstLoad: 20 * KB, stage: 5 * KB };
@@ -181,6 +181,132 @@ describe("checkBundle", () => {
       "assets/index-a.js",
       "assets/pre-c.js",
       "assets/pre-d.js",
+      "assets/quantize.worker-abc.js",
+    ]);
+  });
+
+  it("decodes character references in attribute values before reading them", () => {
+    const dir = makeDist({
+      html: entryHtml(
+        `<link rel="moduleprelo&#97;d" href="/assets/pre-c.js">` +
+          `<link rel="module&#x70;reload" href="&#47;assets&#47;pre-d.js">` +
+          `<link rel="modulepreload" href="&sol;assets&sol;pre-e.js">` +
+          `<script type="mod&#117;le" src="/assets/extra-b.js"></script>`,
+      ),
+      manifest: entryManifest(),
+      files: {
+        "assets/index-a.js": 1 * KB,
+        "assets/extra-b.js": 1 * KB,
+        "assets/pre-c.js": 1 * KB,
+        "assets/pre-d.js": 1 * KB,
+        "assets/pre-e.js": 1 * KB,
+      },
+    });
+    expect(
+      row(checkBundle(dir, budgets, loose), "first-load JS").files.sort(),
+    ).toEqual([
+      "assets/extra-b.js",
+      "assets/index-a.js",
+      "assets/pre-c.js",
+      "assets/pre-d.js",
+      "assets/pre-e.js",
+      "assets/quantize.worker-abc.js",
+    ]);
+  });
+
+  it("leaves text that is not a character reference as it is", () => {
+    const dir = makeDist({
+      html: entryHtml(
+        `<link rel="modulepreload&unknown;" href="/assets/pre-c.js">` +
+          `<link rel="modulepreload&constructor;" href="/assets/pre-d.js">` +
+          `<link rel="modulepreload&#xZZ;" href="/assets/pre-e.js">` +
+          `<link rel="modulepreload&lt=" href="/assets/pre-f.js">`,
+      ),
+      manifest: entryManifest(),
+      files: {
+        "assets/index-a.js": 1 * KB,
+        "assets/pre-c.js": 1 * KB,
+        "assets/pre-d.js": 1 * KB,
+        "assets/pre-e.js": 1 * KB,
+        "assets/pre-f.js": 1 * KB,
+      },
+    });
+    expect(
+      row(checkBundle(dir, budgets, loose), "first-load JS").files.sort(),
+    ).toEqual(["assets/index-a.js", "assets/quantize.worker-abc.js"]);
+  });
+
+  it("counts a classic script toward first-load JS", () => {
+    const dir = makeDist({
+      html: entryHtml(
+        `<script src="/assets/legacy-b.js"></script>` +
+          `<script type="text/javascript" src="/assets/legacy-c.js"></script>` +
+          `<script type=" Application/JavaScript; charset=utf-8" src="/assets/legacy-d.js"></script>`,
+      ),
+      manifest: entryManifest(),
+      files: {
+        "assets/index-a.js": 1 * KB,
+        "assets/legacy-b.js": 1 * KB,
+        "assets/legacy-c.js": 1 * KB,
+        "assets/legacy-d.js": 1 * KB,
+      },
+    });
+    const result = checkBundle(dir, budgets, loose);
+    expect(result.problems).toEqual([]);
+    expect(row(result, "first-load JS").files.sort()).toEqual([
+      "assets/index-a.js",
+      "assets/legacy-b.js",
+      "assets/legacy-c.js",
+      "assets/legacy-d.js",
+      "assets/quantize.worker-abc.js",
+    ]);
+  });
+
+  it("fails when a classic script alone pushes first-load JS over budget", () => {
+    const dir = makeDist({
+      html: entryHtml(`<script src="/assets/legacy-b.js"></script>`),
+      manifest: entryManifest(),
+      files: { "assets/index-a.js": 1 * KB, "assets/legacy-b.js": 25 * KB },
+    });
+    const result = checkBundle(dir, budgets, loose);
+    expect(result.ok).toBe(false);
+    expect(row(result, "first-load JS").status).toBe("fail");
+  });
+
+  it("fails on a classic script it cannot map to a file or find on disk", () => {
+    const elsewhere = makeDist({
+      html: entryHtml(`<script src="https://cdn.example/lib.js"></script>`),
+      manifest: entryManifest(),
+      files: { "assets/index-a.js": 1 * KB },
+    });
+    expect(checkBundle(elsewhere, budgets, loose).problems.join("\n")).toMatch(
+      /cdn\.example\/lib\.js.*cannot be mapped/,
+    );
+    const missing = makeDist({
+      html: entryHtml(`<script src="/assets/legacy-b.js"></script>`),
+      manifest: entryManifest(),
+      files: { "assets/index-a.js": 1 * KB },
+    });
+    expect(checkBundle(missing, budgets, loose).problems.join("\n")).toMatch(
+      /missing: assets\/legacy-b\.js/,
+    );
+  });
+
+  it("does not count scripts a browser never runs", () => {
+    const dir = makeDist({
+      html: entryHtml(
+        `<script nomodule src="/assets/old-b.js"></script>` +
+          `<script type="application/json" src="/assets/data-c.json"></script>` +
+          `<script type="speculationrules">{}</script>` +
+          `<script>window.ready = true;</script>`,
+      ),
+      manifest: entryManifest(),
+      files: { "assets/index-a.js": 1 * KB },
+    });
+    const result = checkBundle(dir, budgets, loose);
+    expect(result.problems).toEqual([]);
+    expect(row(result, "first-load JS").files.sort()).toEqual([
+      "assets/index-a.js",
       "assets/quantize.worker-abc.js",
     ]);
   });
@@ -441,6 +567,43 @@ describe("checkBundle", () => {
     expect(sharedCounted.ok).toBe(true);
   });
 
+  it("leaves the Stage budget to pages that load the Stage", () => {
+    // Two pages share one manifest. The second never loads the Stage, so the
+    // Stage's imports (which it does not share) are not its to pay for.
+    const dir = stageDist({ stageSize: 2 * KB });
+    writeFileSync(
+      join(dir, "how.html"),
+      `<script type="module" crossorigin src="/assets/how-a.js"></script>`,
+    );
+    const manifest = JSON.parse(
+      readFileSync(join(dir, ".vite", "manifest.json"), "utf8"),
+    );
+    manifest["how.html"] = {
+      file: "assets/how-a.js",
+      src: "how.html",
+      isEntry: true,
+      imports: [],
+      dynamicImports: [],
+    };
+    writeFileSync(
+      join(dir, ".vite", "manifest.json"),
+      JSON.stringify(manifest),
+    );
+    writeFileSync(join(dir, "assets", "how-a.js"), randomBytes(2 * KB));
+    writeFileSync(join(dir, "assets", "analysis.worker-x.js"), randomBytes(KB));
+    const result = checkBundle(dir, budgets, {
+      page: "how.html",
+      workerFile: /^analysis\.worker-[\w-]+\.js$/,
+      requireStage: false,
+    });
+    expect(row(result, "Stage chunk").status).toBe("skipped");
+    expect(result.ok).toBe(true);
+    // The entry page, which does load it, still answers for it.
+    expect(
+      row(checkBundle(dir, { ...budgets, stage: KB }), "Stage chunk").status,
+    ).toBe("fail");
+  });
+
   it("counts chunks the Stage loads lazily in its own budget", () => {
     const result = checkBundle(
       stageDist({ stageSize: 2 * KB, shared: true, lazyGl: true }),
@@ -542,5 +705,77 @@ describe("checkBundle", () => {
         budgets,
       ).ok,
     ).toBe(false);
+  });
+
+  it("measures another page with its own worker", () => {
+    const dir = mkdtempSync(join(tmpdir(), "bundle-"));
+    mkdirSync(join(dir, "assets"));
+    mkdirSync(join(dir, ".vite"));
+    writeFileSync(
+      join(dir, "how.html"),
+      `<script type="module" crossorigin src="/assets/how-a.js"></script>`,
+    );
+    writeFileSync(
+      join(dir, ".vite", "manifest.json"),
+      JSON.stringify({
+        "how.html": {
+          file: "assets/how-a.js",
+          src: "how.html",
+          isEntry: true,
+          imports: [],
+          dynamicImports: [],
+        },
+      }),
+    );
+    writeFileSync(join(dir, "assets", "how-a.js"), randomBytes(10 * KB));
+    writeFileSync(join(dir, "assets", "analysis.worker-x.js"), randomBytes(KB));
+    const options = {
+      page: "how.html",
+      workerFile: /^analysis\.worker-[\w-]+\.js$/,
+      requireStage: false,
+    };
+    const result = checkBundle(dir, budgets, options);
+    expect(result.ok).toBe(true);
+    expect(row(result, "first-load JS").files).toContain(
+      "assets/analysis.worker-x.js",
+    );
+    expect(
+      checkBundle(dir, { ...budgets, firstLoad: 5 * KB }, options).ok,
+    ).toBe(false);
+    expect(checkBundle(dir, budgets, loose).problems.join()).toContain(
+      "index.html is missing",
+    );
+  });
+});
+
+describe("reportLines", () => {
+  const failing = {
+    ok: false,
+    rows: [
+      {
+        name: "Stage chunk",
+        bytesGzip: 40 * KB,
+        limit: 15 * KB,
+        status: "fail",
+        files: [],
+      },
+    ],
+    problems: [],
+  };
+
+  it("prints a failing row with its numbers, even on a later page", () => {
+    const lines = reportLines(failing, "how.html", 1).join(" ");
+    expect(lines).toContain("FAIL");
+    expect(lines).toContain("40.00 kB of 15.00 kB");
+  });
+
+  it("never fails without saying why", () => {
+    const silent = { ok: false, rows: [], problems: [] };
+    expect(reportLines(silent, "how.html", 1).join(" ")).toContain("FAIL");
+  });
+
+  it("prints nothing for a page that is fine", () => {
+    const fine = { ok: true, rows: [], problems: [] };
+    expect(reportLines(fine, "how.html", 1)).toEqual([]);
   });
 });

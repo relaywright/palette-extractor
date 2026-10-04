@@ -1,20 +1,58 @@
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { type RGB, rgbToHex, labelColorFor } from "../lib/color";
-import { suggestRoles } from "../lib/theme";
+import {
+  type RolePicks,
+  type RoleName,
+  choiceFromPicks,
+  picksFromChoice,
+  resolveRoles,
+} from "../lib/theme";
 import { Icon } from "./Icon";
+import { PanelBoundary } from "./PanelBoundary";
+import { lazyPanel } from "../lib/lazyPanel";
 import { formatRatio } from "../lib/contrast";
+import "./theme-preview.css";
+
+const ThemeTools = lazyPanel(() => import("./ThemeTools"), "ThemeTools");
+
+const levelOf = (ratio: number) =>
+  ratio >= 7 ? "AAA" : ratio >= 4.5 ? "AA" : "Below AA for body text";
 
 export function ThemePreview({
   palette,
+  swatchIds,
+  extraction,
   image,
+  copied,
+  onCopy,
 }: {
   palette: RGB[];
+  /** The swatch at each palette position, which picks follow. */
+  swatchIds: string[];
+  /** Names the extraction: a new one starts the picks over. */
+  extraction: string;
   image: string | null;
+  copied: string | null;
+  onCopy: (text: string, key: string) => void;
 }) {
-  const [reversed, setReversed] = useState(false);
-  const roles = suggestRoles(palette);
+  // Picks belong to swatches, so they survive a sort and a recolor, and
+  // start over when the photo or the extracted colors change.
+  const scope = extraction;
+  const [picks, setPicks] = useState<{ scope: string; picks: RolePicks }>({
+    scope,
+    picks: {},
+  });
+  if (picks.scope !== scope) setPicks({ scope, picks: {} });
+  const roles = resolveRoles(
+    palette,
+    picks.scope === scope ? choiceFromPicks(swatchIds, picks.picks) : {},
+  );
   if (!roles) return null;
-  if (roles.ratio < 4.5)
+  const choose = (choice: Partial<Record<RoleName, number>>) =>
+    setPicks({ scope, picks: picksFromChoice(swatchIds, choice) });
+  const assign = (role: RoleName, index: number) =>
+    choose({ ...roles.indices, [role]: index });
+  if (roles.bestRatio < 4.5)
     return (
       <section className="context-panel" aria-label="Palette in context">
         <div className="panel-intro">
@@ -24,7 +62,8 @@ export function ThemePreview({
             They need a partner.
           </h2>
           <p>
-            The strongest text pairing here is only {formatRatio(roles.ratio)}
+            The strongest text pairing here is only{" "}
+            {formatRatio(roles.bestRatio)}
             :1. Try more colors or a different image to reach 4.5:1 for readable
             body text.
           </p>
@@ -40,11 +79,10 @@ export function ThemePreview({
         </div>
       </section>
     );
-  const bg = reversed ? roles.foreground : roles.background;
-  const fg = reversed ? roles.background : roles.foreground;
+  const { surface: bg, text: fg } = roles;
   return (
     <section className="context-panel" aria-label="Palette in context">
-      <div className="panel-intro">
+      <div className="panel-intro theme-intro">
         <h2>See the possibilities.</h2>
         <p>
           A small identity, made entirely from your palette. Change the image
@@ -52,34 +90,38 @@ export function ThemePreview({
         </p>
         <button
           className="button secondary"
-          onClick={() => setReversed((v) => !v)}
+          onClick={() =>
+            choose({
+              ...roles.indices,
+              surface: roles.indices.text,
+              text: roles.indices.surface,
+            })
+          }
         >
           <Icon name="swap" /> Reverse light &amp; dark
         </button>
-        <div className="role-list">
-          {(
-            [
-              ["Surface", bg],
-              ["Type", fg],
-              ["Accent", roles.accent],
-            ] as [string, RGB][]
-          ).map(([label, color]) => (
-            <div key={label}>
-              <i style={{ background: rgbToHex(color) }} />
-              <span>{label}</span>
-              <code>{rgbToHex(color)}</code>
-            </div>
-          ))}
+        <div className="theme-tools">
+          <p className="contrast-note">
+            <Icon name="contrast" size={14} /> {formatRatio(roles.textRatio)}
+            :1 text contrast · {levelOf(roles.textRatio)}
+          </p>
+          <p className="accent-note">
+            Accent on surface {formatRatio(roles.accentRatio)}:1
+          </p>
+          <PanelBoundary>
+            <Suspense fallback={null}>
+              <ThemeTools
+                key={scope}
+                palette={palette}
+                roles={roles}
+                onAssign={assign}
+                onReset={() => setPicks({ scope, picks: {} })}
+                copied={copied}
+                onCopy={onCopy}
+              />
+            </Suspense>
+          </PanelBoundary>
         </div>
-        <p className="contrast-note">
-          <Icon name="contrast" size={14} /> {formatRatio(roles.ratio)}
-          :1 text contrast ·{" "}
-          {roles.ratio >= 7
-            ? "AAA"
-            : roles.ratio >= 4.5
-              ? "AA"
-              : "Below AA for body text"}
-        </p>
       </div>
       <div
         className="brand-preview"

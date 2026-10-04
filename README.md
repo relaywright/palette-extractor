@@ -11,19 +11,40 @@
 
 ## Explore the palette
 
+### Watch it happen
+
+- **The photo turns into its palette.** On first load the sample photo lifts into its pixels, the pixels settle into a turning 3D cloud of color, the cloud splits into groups, and each group condenses into a swatch that flies to its slot. Any click, tap or key skips to the end, and swatches work throughout.
 - **Start immediately.** Three bundled sample moods demonstrate the tool without an upload.
-- **Bring your own image.** Upload, drop a file anywhere, paste an image, or load a public image URL.
+- **Bring your own image.** Upload, drop a file anywhere, paste an image, load a public image URL, or point your phone's camera at something and watch the palette follow it live. Tap to freeze a frame.
+
+### Touch the colors
+
+- **See where a color lives.** Hover, focus or tap a swatch and the photo dims everywhere except the pixels that went into it, while the same group lights up in the cloud.
+- **Pick straight from the photo.** A loupe shows the exact pixel under the pointer and which swatch owns it. Click to pin that pixel's color into the palette.
+- **Recolor the photo.** Nudge any swatch's lightness, chroma or hue and the photo recolors in real time on the GPU, using palette-based recoloring in OKLab. The preview, contrast checks, exports and share link all follow your edits, and Reset brings back the extracted colors.
+- **Author the theme.** Choose which colors play surface, type and accent, then export the theme as CSS variables, a Tailwind v4 `@theme` block or JSON, with a reversed set included.
+- **Keep your hands on the keyboard.** Number keys select swatches, C copies, Shift+C copies the palette, S copies the share link, and ? lists every shortcut.
+
+### Know the color
+
 - **Find and keep your colors.** Request 4–10 colors, pin favorites while re-extracting around them, sort by hue or lightness, and copy HEX, RGB, or HSL values.
-- **Understand the balance.** A distribution strip and percentages show each quantized color group's share of the sampled image. Pinned palettes deliberately hide distribution, since their colors may come from different images.
-- **See it in context.** An editorial identity responds to the palette, with suggested surface, text, and accent roles. Reverse light and dark to explore another direction. Low-contrast palettes get an honest explanation instead of an unreadable preview.
-- **Check readability.** Compare actual WCAG 2 contrast ratios and copy a text/background pair as CSS. Large-text-only pairs are labeled separately.
-- **Switch to perceptual grouping.** Toggle Color space between RGB and Perceptual to re-extract with OKLab, a color model closer to how eyes actually group hues. A status line reports how many swatches changed, and changed swatches get a brief highlight.
-- **Watch the algorithm.** A live RGB (or OKLab) cube plots up to 3,000 sampled pixels and animates median-cut partitions, morphing between spaces when you switch.
-- **Take it with you.** Preview, copy, or download CSS variables, Tailwind v4 theme tokens, SCSS, SVG, or JSON. Save a PNG palette card or share a compact color-only link, including one-color palettes.
+- **Shade scales.** Every swatch gets an OKLCH scale from 50 to 950, gamut-mapped to sRGB with the CSS Color 4 method, with Display P3 values and a lightness curve. Exports can include the full scales.
+- **Check readability two ways.** Every pair shows its WCAG 2 contrast ratio beside APCA Lc (the WCAG 3 draft method), with a plain note when the two disagree.
+- **Preview color blindness.** Simulate protanopia, deuteranopia and tritanopia across the photo, swatches and identity preview, with a warning when two swatches become hard to tell apart.
+- **Compare color spaces.** Switch between RGB and Perceptual (OKLab) grouping and see both palettes side by side, aligned color for color.
+- **See it in context.** An editorial identity responds to the palette. Reverse light and dark to explore another direction. Low-contrast palettes get an honest explanation instead of an unreadable preview.
+- **Take it with you.** Preview, copy, or download CSS variables, Tailwind v4 theme tokens, SCSS, SVG, or JSON. Save a PNG palette card or share a compact color-only link.
+
+### On your phone
+
+- **Built for one hand.** The tools open as a bottom sheet, and copying gives a small haptic tick where the phone supports it.
+- **Install it and use it offline.** The app installs to the home screen and works without a connection after the first visit. On Android, share a photo straight into it from the gallery.
 
 ## How it works
 
 ![The How it works panel: sampled pixels rotating in an RGB cube while median-cut boxes split into the final palette](.github/how-it-works.webp)
+
+[Read how median cut works](https://palette-extractor.relaywright.workers.dev/how.html), an interactive walkthrough that runs the quantizer on your own photo.
 
 ```mermaid
 flowchart LR
@@ -45,6 +66,10 @@ flowchart LR
 - **Pinning re-extracts around your picks.** Pinned colors stay put, and pixels close to them are excluded before the remaining swatches are found, so the new picks are genuinely different. Perceptual mode excludes by OKLab distance instead of RGB distance, so it keeps out perceptually similar pixels even when their raw RGB values differ.
 - **Visualize the real run.** The worker returns the actual split sequence along with a pixel sample, so the cube replays the run that produced your palette rather than a canned illustration. It respects reduced-motion preferences and pauses while off screen.
 - **Perceptual grouping without a color library.** Perceptual mode runs the same from-scratch median cut on OKLab coordinates, rescaled into the 0–255 domain the RGB path already uses. A medium and a bright green can sit only 40 apart in RGB while looking clearly different, and a yellow-green 50 away can look almost identical to the bright one. Asked for two swatches, RGB spends one on the near-duplicate; Perceptual spends it on the difference a viewer can see, and a unit test holds that example. Every swatch is still a real source pixel, and RGB mode is unchanged byte for byte, checked against output recorded before the OKLab path existed.
+
+- **A WebGL2 renderer with no library.** The color cloud draws up to 20,000 points in one draw call; a single progress uniform blends each point between its place in the photo and its place in color space. It measures its own frame times and drops points on slow devices, falls back to Canvas 2D without WebGL2, and loads only after the photo has painted so it never delays the first view.
+- **Recoloring that respects the photo.** Each pixel is weighted to the palette colors in OKLab with Gaussian falloff and moves by the weighted sum of your swatch edits, then is gamut-mapped back into sRGB. With no edits the output is byte-identical to the input, and a test holds that line. Without WebGL2 the same math runs on the CPU.
+- **Offline without stale deploys.** A hand-written service worker precaches each build's exact file list, named by a content hash. Pages always try the network first, so a new deploy shows on the next online visit, and a deploy that arrives only partly never replaces the saved version.
 
 Swatches are colors from the downscaled sample, and resizing can blend neighboring pixels. Quantization is an approximation, and a simple image may return fewer colors than requested.
 

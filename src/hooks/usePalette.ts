@@ -8,20 +8,43 @@ import {
 } from "react";
 import { type RGB, type SortMode, rgbToHex, sortPalette } from "../lib/color";
 import { extractPaletteDetailed, type ExtractionDetail } from "../lib/extract";
+import {
+  type Lock,
+  locksFor,
+  newPinId,
+  showsPins,
+  toggleLocked,
+} from "../lib/locks";
+import { SAME_COLOR_DISTANCE } from "../lib/compare";
 import { withoutBoxes } from "../lib/stageGroups";
 import { updatePaletteFavicon } from "../lib/favicon";
-import { oklabDistance, type ColorSpace } from "@relaywright/median-cut";
+import {
+  oklabDistance,
+  type ColorSpace,
+  type WeightedColor,
+} from "@relaywright/median-cut";
 import type { Source } from "./useImageSource";
 
 const HIGHLIGHT_DURATION_MS = 1500;
-// Switching spaces often nudges a swatch to a neighboring pixel of the same
-// color. Below this OKLab distance a swatch reads as unchanged, so only
-// visible differences are counted and highlighted.
-const SAME_COLOR_DISTANCE = 0.03;
+export type PinOutcome = "pinned" | "already" | "full" | "busy";
+const MAX_COLORS = 10;
+
+/** A palette color; a pinned one names the pin that holds it. */
+export interface PaletteColor extends WeightedColor {
+  lockId?: string;
+}
+type PaletteDetail = Omit<ExtractionDetail, "colors"> & {
+  colors: PaletteColor[];
+};
+
+const pinned = (locks: Lock[]): PaletteColor[] =>
+  locks.map(({ id, color }) => ({ color, population: 0, lockId: id }));
 
 interface UsePaletteOptions {
   source: Source | null;
   urlBusy: boolean;
+  /** The camera is feeding frames, so the chosen source stays untouched. */
+  live?: boolean;
   initialColors: RGB[] | null;
   setLoaded: (source: Source) => void;
   setError: (message: string | null) => void;
@@ -35,18 +58,27 @@ interface UsePaletteOptions {
 export function usePalette({
   source,
   urlBusy,
+  live = false,
   initialColors,
   setLoaded,
   setError,
   setNotice,
 }: UsePaletteOptions) {
-  const [detail, setDetail] = useState<ExtractionDetail>({
-    colors: initialColors?.map((color) => ({ color, population: 1 })) ?? [],
+  const [locks, setLocks] = useState<Lock[]>(() =>
+    locksFor(initialColors ?? []),
+  );
+  const [detail, setDetail] = useState<PaletteDetail>(() => ({
+    colors: locks.map(({ id, color }) => ({
+      color,
+      population: 1,
+      lockId: id,
+    })),
     pixels: [],
     steps: [],
     samples: null,
-  });
-  const [locked, setLocked] = useState<RGB[]>(initialColors ?? []);
+  }));
+  // Extraction and the stage read the pinned colors alone.
+  const locked = useMemo(() => locks.map((lock) => lock.color), [locks]);
   const [count, setCount] = useState(initialColors?.length ?? 6);
   const [sort, setSort] = useState<SortMode>("original");
   const [extracting, setExtracting] = useState(!initialColors);
@@ -61,7 +93,7 @@ export function usePalette({
   const highlightTimeout = useRef<number>();
 
   useEffect(() => {
-    if (!source) return;
+    if (!source || live) return;
     const controller = new AbortController();
     setExtracting(true);
     const remaining = count - locked.length;
@@ -90,10 +122,7 @@ export function usePalette({
       startTransition(() => {
         setDetail({
           ...next,
-          colors: [
-            ...locked.map((color) => ({ color, population: 0 })),
-            ...unlocked,
-          ],
+          colors: [...pinned(locks), ...unlocked],
           ...(remaining <= 0
             ? {
                 pixels: [],
@@ -148,7 +177,7 @@ export function usePalette({
       }
     });
     return () => controller.abort();
-  }, [source, count, locked, colorSpace]);
+  }, [source, count, locks, colorSpace, live]);
 
   useEffect(() => () => window.clearTimeout(highlightTimeout.current), []);
 
@@ -158,36 +187,53 @@ export function usePalette({
   );
   const colors = useMemo(() => sorted.map((e) => e.color), [sorted]);
   const total = sorted.reduce((sum, e) => sum + e.population, 0);
-  const lockedSet = new Set(locked.map(rgbToHex));
   const busy = extracting || urlBusy;
 
   useEffect(() => {
     updatePaletteFavicon(colors);
   }, [colors]);
 
+  // A pin made on a swatch takes the swatch's id, which the rebuilt palette
+  // uses to keep the pin on that swatch and not on another of the same color.
   const toggleLock = useCallback(
-    (color: RGB) => {
+    (id: string, color: RGB) => {
       if (busy || !source) return;
-      const hex = rgbToHex(color);
-      setLocked((prev) =>
-        prev.some((c) => rgbToHex(c) === hex)
-          ? prev.filter((c) => rgbToHex(c) !== hex)
-          : [...prev, color],
-      );
+      setLocks((prev) => toggleLocked(prev, id, color));
     },
     [busy, source],
+  );
+
+  // Pins a color picked from the photo. Pinned colors count
+  // toward the palette size, so when every slot is already pinned the
+  // palette grows by one, up to the limit.
+  const pinColor = useCallback(
+    (color: RGB): PinOutcome => {
+      if (busy || !source) return "busy";
+      const hex = rgbToHex(color);
+      if (locked.some((c) => rgbToHex(c) === hex)) return "already";
+      if (locked.length >= MAX_COLORS) return "full";
+      if (locked.length >= count) setCount(locked.length + 1);
+      setLocks([...locks, { id: newPinId(), color }]);
+      return "pinned";
+    },
+    [busy, source, locks, locked, count],
   );
 
   const bumpMinCount = useCallback(() => setCount((v) => Math.max(4, v)), []);
 
   const loadShared = useCallback((colors: RGB[]) => {
+    const pins = locksFor(colors);
     setDetail({
-      colors: colors.map((color) => ({ color, population: 1 })),
+      colors: pins.map(({ id, color }) => ({
+        color,
+        population: 1,
+        lockId: id,
+      })),
       pixels: [],
       steps: [],
       samples: null,
     });
-    setLocked(colors);
+    setLocks(pins);
     setCount(colors.length);
     setExtracting(false);
     setColorSpace("rgb");
@@ -197,10 +243,48 @@ export function usePalette({
     previousUnlocked.current = [];
   }, []);
 
+  // A camera frame replaces the palette in place. The photo is unchanged, so
+  // the swatches melt to the new colors, and a frame that looks the same as
+  // the last one is dropped so a steady scene stays still.
+  const applyLive = useCallback(
+    (next: ExtractionDetail) => {
+      const remaining = count - locked.length;
+      const unlocked = remaining > 0 ? next.colors.slice(0, remaining) : [];
+      const steady = (entries: { color: RGB }[]) =>
+        entries.length === unlocked.length &&
+        entries.every(
+          ({ color }, i) => oklabDistance(color, unlocked[i].color) < 0.015,
+        );
+      startTransition(() => {
+        setDetail((prev) => {
+          const shown = prev.colors.slice(locked.length);
+          // A pin made or released since the last frame is not a steady frame.
+          if (
+            prev.samples === null &&
+            showsPins(prev.colors, locks) &&
+            steady(shown)
+          )
+            return prev;
+          return {
+            colors: [...pinned(locks), ...unlocked],
+            pixels: [],
+            steps: [],
+            samples: null,
+          };
+        });
+        setDetailColorSpace(colorSpace);
+        setExtracting(false);
+      });
+    },
+    [count, locks, locked, colorSpace],
+  );
+
   return {
     detail,
+    applyLive,
     locked,
-    setLocked,
+    locks,
+    setLocks,
     count,
     setCount,
     sort,
@@ -209,8 +293,8 @@ export function usePalette({
     sorted,
     colors,
     total,
-    lockedSet,
     toggleLock,
+    pinColor,
     bumpMinCount,
     loadShared,
     colorSpace,

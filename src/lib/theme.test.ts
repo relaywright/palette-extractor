@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { suggestRoles } from "./theme";
+import {
+  choiceFromPicks,
+  picksFromChoice,
+  resolveRoles,
+  suggestRoles,
+} from "./theme";
+import { contrastRatio } from "./contrast";
 
 describe("palette role suggestions", () => {
   it("selects the strongest contrast pair and uses only source colors", () => {
@@ -64,5 +70,74 @@ describe("palette role suggestions", () => {
         { r: 125, g: 125, b: 125 },
       ])!.ratio,
     ).toBeLessThan(4.5);
+  });
+});
+
+describe("resolveRoles", () => {
+  const dark = { r: 0, g: 0, b: 0 },
+    light = { r: 255, g: 255, b: 255 },
+    accent = { r: 230, g: 80, b: 40 },
+    mid = { r: 120, g: 120, b: 120 };
+  const palette = [accent, dark, light, mid];
+
+  it("matches the suggestion when nothing is picked", () => {
+    const roles = resolveRoles(palette, {})!;
+    expect(roles.surface).toEqual(light);
+    expect(roles.text).toEqual(dark);
+    expect(roles.accent).toEqual(accent);
+    expect(roles.indices).toEqual({ surface: 2, text: 1, accent: 0 });
+    expect(roles.changed).toBe(false);
+  });
+  it("applies a pick and recomputes contrast from it", () => {
+    const roles = resolveRoles(palette, { text: 3 })!;
+    expect(roles.text).toEqual(mid);
+    expect(roles.textRatio).toBeCloseTo(contrastRatio(mid, light), 5);
+    expect(roles.textRatio).toBeLessThan(roles.bestRatio);
+    expect(roles.changed).toBe(true);
+  });
+  it("ignores a pick the palette no longer has", () => {
+    const roles = resolveRoles(palette, { accent: 9, surface: -1 })!;
+    expect(roles.indices).toEqual({ surface: 2, text: 1, accent: 0 });
+    expect(roles.changed).toBe(false);
+  });
+  it("does not count a pick of an identical color as a change", () => {
+    const twin = [...palette, { ...light }];
+    expect(resolveRoles(twin, { surface: 4 })!.changed).toBe(false);
+  });
+  it("has nothing to resolve for an empty palette", () => {
+    expect(resolveRoles([], {})).toBeNull();
+  });
+});
+
+describe("role picks by swatch", () => {
+  const ids = ["a", "b", "c", "d"];
+
+  it("turns a position choice into picks and back", () => {
+    const picks = picksFromChoice(ids, { surface: 2, text: 0, accent: 3 });
+    expect(picks).toEqual({ surface: "c", text: "a", accent: "d" });
+    expect(choiceFromPicks(ids, picks)).toEqual({
+      surface: 2,
+      text: 0,
+      accent: 3,
+    });
+  });
+  it("follows a swatch to its new position when the palette is sorted", () => {
+    const picks = picksFromChoice(ids, { accent: 1 });
+    const sorted = ["d", "c", "b", "a"];
+    expect(choiceFromPicks(sorted, picks)).toEqual({ accent: 2 });
+  });
+  it("drops a pick whose swatch is gone", () => {
+    expect(choiceFromPicks(["a", "b"], { accent: "z", text: "b" })).toEqual({
+      text: 1,
+    });
+  });
+  it("keeps a pick on the swatch it named when another repeats its color", () => {
+    const red = { r: 238, g: 85, b: 51 };
+    const palette = [red, { ...red }, { r: 0, g: 0, b: 0 }];
+    const roles = resolveRoles(
+      palette,
+      choiceFromPicks(["a", "b", "c"], { accent: "b" }),
+    )!;
+    expect(roles.indices.accent).toBe(1);
   });
 });

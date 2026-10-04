@@ -212,7 +212,7 @@ test("the export header fits a narrow phone even at ten colors", async ({
 });
 
 for (const width of [390, 360, 320]) {
-  test(`the identity footer sits on two clean rows at ${width}px`, async ({
+  test(`the identity footer stacks on three clean rows at ${width}px`, async ({
     page,
   }) => {
     await page.setViewportSize({ width, height: 900 });
@@ -229,19 +229,18 @@ for (const width of [390, 360, 320]) {
         ).size;
       };
       const box = (el: Element) => el.getBoundingClientRect();
-      const middle = (el: Element) => box(el).top + box(el).height / 2;
       return {
         taglineLines: lineCount(tagline),
         studyLines: lineCount(study),
         dotsBelowTagline: box(dots).top >= box(tagline).bottom - 1,
-        studyBesideDots: Math.abs(middle(study) - middle(dots)) < 4,
+        studyBelowDots: box(study).top >= box(dots).bottom - 1,
       };
     });
     expect(layout).toEqual({
       taglineLines: 1,
       studyLines: 1,
       dotsBelowTagline: true,
-      studyBesideDots: true,
+      studyBelowDots: true,
     });
     expect(
       await page.evaluate(

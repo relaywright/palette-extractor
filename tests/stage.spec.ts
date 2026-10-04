@@ -6,7 +6,9 @@ import {
   afterStageChange,
   countFrames,
   host,
+  introObservedAt,
   pointsCanvas,
+  watchIntroStart,
 } from "./stage-checks";
 
 test("pointer skip is immediate and a copy click retains its action", async ({
@@ -439,20 +441,28 @@ test("a new sample uses the short intro and preserves its palette", async ({
 }) => {
   await page.goto("/");
   await stageDone(page);
+  await watchIntroStart(page);
   await page.getByRole("button", { name: "Try Forest floor" }).click();
   await expect(host(page)).toHaveAttribute("data-stage-phase", "intro");
-  // The page's own start and end marks, so a slow round trip to the browser
-  // cannot shorten the measured intro.
   await expect(host(page)).toHaveAttribute("data-stage-done-at", /\d/, {
     timeout: 2500,
   });
   const mark = async (name: string) =>
     Number(await host(page).getAttribute(name));
+  const introAt = (await introObservedAt(page))!;
+  // The intro's clock runs on frame times, which can run behind the page's
+  // clock on a busy machine, so the stage's start mark (taken at the first
+  // drawn frame) is not a reliable start for a lower bound. The planned
+  // length is read from the moment the intro began to its planned end mark.
+  const planned = (await mark("data-stage-ends-at")) - introAt;
+  expect(planned).toBeGreaterThan(1100);
+  expect(planned).toBeLessThanOrEqual(1201);
+  // The full intro is 3,000 ms; the measured intro must be nowhere near it,
+  // and not cut short either.
   const duration =
     (await mark("data-stage-done-at")) - (await mark("data-stage-started-at"));
   expect(duration).toBeLessThan(2000);
-  // The short intro is 1,200 ms; one frame of slack.
-  expect(duration).toBeGreaterThanOrEqual(1150);
+  expect((await mark("data-stage-done-at")) - introAt).toBeGreaterThan(1000);
   expect(
     await page
       .locator(".swatch-select")

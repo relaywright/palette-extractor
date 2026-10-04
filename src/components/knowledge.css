@@ -1,0 +1,311 @@
+/* Color-vision simulation: the photo (and the point cloud of its pixels), the
+   swatches and the mockup. The attribute is set on the root once the filters
+   in CvdFilterDefs exist. Whichever layer shows the photo takes the filter, so
+   it is applied once: the recolored copy or the live camera replaces the
+   original image beneath it, which keeps its filter off. */
+[data-cvd="protanopia"] {
+  --cvd-filter: url(#cvd-protanopia);
+}
+[data-cvd="deuteranopia"] {
+  --cvd-filter: url(#cvd-deuteranopia);
+}
+[data-cvd="tritanopia"] {
+  --cvd-filter: url(#cvd-tritanopia);
+}
+[data-cvd]
+  :is(
+    .source-frame
+      > img:not(:has(~ :is(.camera-layer, .recolor-layer[data-active="true"]))),
+    .recolor-layer[data-active="true"],
+    .camera-video,
+    .stage-points,
+    .swatch-grid,
+    .brand-preview
+  ) {
+  filter: var(--cvd-filter);
+}
+
+.cvd-defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+.cvd-indicator {
+  position: fixed;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: calc(100vw - 32px);
+  padding: 6px 6px 6px 16px;
+  border: 1px solid #5a5e61;
+  border-radius: 999px;
+  background: #26292b;
+  color: #f5f3ed;
+  font-size: 12px;
+  box-shadow: 0 6px 24px #0006;
+}
+.cvd-indicator span,
+.cvd-indicator button {
+  white-space: nowrap;
+}
+.cvd-indicator button {
+  min-height: 32px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: #f1eee8;
+  color: #1c1e1f;
+  font-size: 11px;
+  font-weight: 500;
+}
+.cvd-indicator button:focus-visible {
+  outline: 2px solid #f1eee8;
+  outline-offset: 2px;
+}
+/* Phones have a tab bar fixed to the bottom: the badge rides above it. An
+   open tool sheet ends at the same place, so the badge steps aside for it;
+   the Contrast tab inside the sheet has the control that turns it off. */
+@media (max-width: 580px) {
+  .cvd-indicator {
+    bottom: calc(
+      var(--tab-bar, 60px) + env(safe-area-inset-bottom, 0px) + 12px
+    );
+  }
+  html[data-sheet="open"] .cvd-indicator {
+    visibility: hidden;
+  }
+}
+
+/* Segmented controls and toggles shared by the Contrast and Export tabs. */
+.knowledge-switch {
+  margin: 0 0 18px;
+  flex-wrap: wrap;
+}
+.knowledge-switch label {
+  min-height: 32px;
+}
+.knowledge-switch-label {
+  font-size: 11px;
+}
+.knowledge-check {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  column-gap: 10px;
+  row-gap: 2px;
+  margin: 16px 0 18px;
+  font-size: 12px;
+  color: #d7d8d8;
+  cursor: pointer;
+}
+.knowledge-check input {
+  width: 18px;
+  height: 18px;
+  accent-color: #d4c3a8;
+}
+.knowledge-check small {
+  grid-column: 2;
+  font-size: 11px;
+  color: #a5a7a8;
+}
+.knowledge-check:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+.knowledge-check:has(input:focus-visible) {
+  outline: 2px solid #f1eee8;
+  outline-offset: 3px;
+}
+
+/* Contrast tab: color-vision control, its result, and the APCA lines. */
+.cvd-control {
+  margin-bottom: 22px;
+}
+.cvd-control .knowledge-switch {
+  margin-bottom: 8px;
+}
+.cvd-help {
+  font-size: 11px;
+  color: #a5a7a8;
+  margin: 0 0 8px;
+}
+.cvd-result {
+  font-size: 12px;
+  line-height: 1.6;
+  color: #d7d8d8;
+}
+.cvd-result:empty {
+  display: none;
+}
+.cvd-result ul {
+  margin: 4px 0 4px 18px;
+  padding: 0;
+}
+.apca-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 6px 0 0;
+  font: 10px var(--font-mono);
+  color: #b5b9ba;
+}
+.apca-line span:first-child {
+  color: #e6e6e3;
+}
+.apca-note {
+  margin: 4px 0 0;
+  font-size: 10px;
+  line-height: 1.5;
+  color: #b5b9ba;
+}
+
+/* Export tab: shade scales. */
+.shade-scales {
+  min-width: 0;
+}
+.shade-note {
+  font-size: 12px;
+  margin: 0 0 12px;
+}
+.shade-rows {
+  display: grid;
+  gap: 22px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.shade-row {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+.shade-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.shade-head h3 {
+  font-size: 13px;
+  font-weight: 500;
+  color: #e6e6e3;
+  margin: 0;
+}
+.shade-head code {
+  font: 11px var(--font-mono);
+  color: #a7abad;
+}
+.shade-chips {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  gap: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.shade-chip {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  min-height: 44px;
+  padding: 4px;
+  text-align: left;
+  border: 1px solid #35383a;
+  border-radius: 6px;
+  background: #191c1e;
+}
+.shade-chip:hover {
+  border-color: #6a6e71;
+}
+.shade-chip:focus-visible {
+  outline: 2px solid #f1eee8;
+  outline-offset: 2px;
+}
+.shade-chip i {
+  display: block;
+  height: 28px;
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 1px #ffffff1f;
+}
+.shade-stop {
+  font: 10px var(--font-mono);
+  color: #e6e6e3;
+}
+.shade-chip code {
+  font: 9px/1.3 var(--font-mono);
+  color: #b5b9ba;
+  overflow-wrap: anywhere;
+}
+.shade-curve {
+  width: 100%;
+  max-width: 320px;
+  height: auto;
+  border: 1px solid #2f3234;
+  border-radius: 6px;
+  background: #191c1e;
+}
+.shade-curve-mid {
+  stroke: #3a3d3f;
+  stroke-dasharray: 3 3;
+}
+.shade-curve-line {
+  stroke: #7d8184;
+  stroke-width: 1.5;
+}
+.shade-curve-dot {
+  stroke: #8a8e91;
+  stroke-width: 1;
+}
+.shade-curve-dot.is-anchor {
+  stroke: #f5f3ed;
+  stroke-width: 2;
+}
+
+@media (max-width: 760px) {
+  .cvd-indicator {
+    font-size: 11px;
+  }
+  .shade-chips {
+    grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  }
+}
+
+/* Tablets keep all text at 12px or more. */
+@media (min-width: 581px) and (max-width: 850px) {
+  .cvd-indicator,
+  .cvd-indicator button,
+  .cvd-help,
+  .knowledge-switch-label,
+  .knowledge-check small,
+  .apca-line,
+  .apca-note,
+  .shade-head code,
+  .shade-stop,
+  .shade-chip code {
+    font-size: 12px;
+  }
+}
+
+/* The desktop layout keeps all text at 13px or more. */
+@media (min-width: 851px) {
+  .cvd-indicator,
+  .cvd-indicator button,
+  .cvd-help,
+  .cvd-result,
+  .knowledge-switch-label,
+  .knowledge-check,
+  .knowledge-check small,
+  .apca-line,
+  .apca-note,
+  .shade-note,
+  .shade-head h3,
+  .shade-head code,
+  .shade-stop,
+  .shade-chip code {
+    font-size: 13px;
+  }
+}

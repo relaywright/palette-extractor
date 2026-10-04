@@ -61,6 +61,11 @@
       "layers": []
     },
     {
+      "element": "div.workspace > section.palette-panel > button.text-button",
+      "ink": "rgb(184, 186, 187)",
+      "layers": []
+    },
+    {
       "element": "div.workspace > section.palette-panel > p.palette-hint",
       "ink": "rgb(161, 163, 164)",
       "layers": []
@@ -138,6 +143,11 @@
       "alpha": 1
     },
     {
+      "element": "div.phone-source-controls > div.capture-actions > button.button",
+      "color": "rgb(228, 195, 151)",
+      "alpha": 1
+    },
+    {
       "element": "div.sample-row > div > button.active",
       "color": "rgb(228, 195, 151)",
       "alpha": 1
@@ -153,12 +163,12 @@
       "alpha": 1
     },
     {
-      "element": "main > div.phone-source-controls > button.button",
+      "element": "div.workspace > section.palette-panel > button.text-button",
       "color": "rgb(228, 195, 151)",
       "alpha": 1
     },
     {
-      "element": "main > section.intro > button.button",
+      "element": "section.intro > div.capture-actions > button.button",
       "color": "rgb(228, 195, 151)",
       "alpha": 1
     },

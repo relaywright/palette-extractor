@@ -113,6 +113,40 @@ describe("planMorph", () => {
     ).toEqual(["A", "B"]);
   });
 
+  it("gives a pinned color the swatch it was pinned on, even among identical colors", () => {
+    // B is the pinned red (its pin is named after it); A is the red that was
+    // let go and is re-extracted.
+    const plan = planMorph(
+      shown([red, red]),
+      [
+        { rgb: red, locked: true, lockId: "B" },
+        { rgb: blue, locked: false },
+      ],
+      noNewIds,
+    );
+    expect(ids(plan)).toEqual(["B", "A"]);
+    expect(plan.items[1].from).toEqual(red);
+  });
+
+  it("keeps a pin on the swatch that carries it, whatever the swatch is called", () => {
+    // A shared link's pins are not named after any swatch; once matched, the
+    // swatch carries its pin, and the second red keeps the second swatch.
+    const prev = shown([red, red]).map((swatch, i) => ({
+      ...swatch,
+      locked: true,
+      lockId: `pin-${i}`,
+    }));
+    const plan = planMorph(
+      prev,
+      [
+        { rgb: red, locked: true, lockId: "pin-1" },
+        { rgb: blue, locked: false },
+      ],
+      noNewIds,
+    );
+    expect(ids(plan)).toEqual(["B", "A"]);
+  });
+
   it("lets a locked color with no same-hex swatch fall through to nearest matching", () => {
     const darkRed = { r: 240, g: 0, b: 0 };
     const darkBlue = { r: 0, g: 0, b: 240 };
