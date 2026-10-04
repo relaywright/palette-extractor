@@ -49,22 +49,37 @@ export function swatchOwning(
 }
 
 export interface Cover {
+  /** Box pixels per pixel of the image as the page shows it. */
   scale: number;
+  /** Box pixels per working pixel across and down. */
+  scaleX: number;
+  scaleY: number;
   offsetX: number;
   offsetY: number;
 }
 
-/** How a width by height image is placed by `object-fit: cover` in a box. */
+/**
+ * How `object-fit: cover` places the photo in a box, written in working
+ * pixels. The working raster is the photo rounded down to at most 320 px, so
+ * its proportions can differ from the photo's (a 1000 by 1 photo works out as
+ * 320 by 1). The placement follows the photo's own size (`naturalWidth` by
+ * `naturalHeight`, which default to the raster's) and the raster is stretched
+ * over it, so every layer crops exactly as the photo does.
+ */
 export function coverFit(
   box: { width: number; height: number },
   width: number,
   height: number,
+  naturalWidth = width,
+  naturalHeight = height,
 ): Cover {
-  const scale = Math.max(box.width / width, box.height / height);
+  const scale = Math.max(box.width / naturalWidth, box.height / naturalHeight);
   return {
     scale,
-    offsetX: (box.width - width * scale) / 2,
-    offsetY: (box.height - height * scale) / 2,
+    scaleX: (scale * naturalWidth) / width,
+    scaleY: (scale * naturalHeight) / height,
+    offsetX: (box.width - naturalWidth * scale) / 2,
+    offsetY: (box.height - naturalHeight * scale) / 2,
   };
 }
 
@@ -75,8 +90,8 @@ export function pixelAt(
   width: number,
   height: number,
 ): { x: number; y: number } | null {
-  const x = Math.floor((point.x - cover.offsetX) / cover.scale),
-    y = Math.floor((point.y - cover.offsetY) / cover.scale);
+  const x = Math.floor((point.x - cover.offsetX) / cover.scaleX),
+    y = Math.floor((point.y - cover.offsetY) / cover.scaleY);
   return x < 0 || y < 0 || x >= width || y >= height ? null : { x, y };
 }
 
@@ -86,8 +101,102 @@ export function pointOf(
   cover: Cover,
 ): { x: number; y: number } {
   return {
-    x: cover.offsetX + (pixel.x + 0.5) * cover.scale,
-    y: cover.offsetY + (pixel.y + 0.5) * cover.scale,
+    x: cover.offsetX + (pixel.x + 0.5) * cover.scaleX,
+    y: cover.offsetY + (pixel.y + 0.5) * cover.scaleY,
+  };
+}
+
+/** An inclusive range of working pixels. */
+export interface Bounds {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+}
+
+/**
+ * The working pixels whose centers show inside the box. A crop narrower than
+ * one working pixel keeps the pixel at its middle.
+ */
+export function visiblePixels(
+  box: { width: number; height: number },
+  cover: Cover,
+  width: number,
+  height: number,
+): Bounds {
+  const range = (
+    extent: number,
+    offset: number,
+    scale: number,
+    count: number,
+  ): [number, number] => {
+    const clamp = (value: number) => Math.min(count - 1, Math.max(0, value));
+    const low = clamp(Math.ceil(-offset / scale - 0.5)),
+      high = clamp(Math.floor((extent - offset) / scale - 0.5));
+    if (low <= high) return [low, high];
+    const middle = clamp(Math.floor((extent / 2 - offset) / scale));
+    return [middle, middle];
+  };
+  const [minX, maxX] = range(box.width, cover.offsetX, cover.scaleX, width);
+  const [minY, maxY] = range(box.height, cover.offsetY, cover.scaleY, height);
+  return { minX, maxX, minY, maxY };
+}
+
+/** The part of the working raster the box shows, in working pixels. */
+export function visibleCrop(
+  box: { width: number; height: number },
+  cover: Cover,
+  width: number,
+  height: number,
+) {
+  const sx = Math.max(0, -cover.offsetX / cover.scaleX),
+    sy = Math.max(0, -cover.offsetY / cover.scaleY);
+  return {
+    sx,
+    sy,
+    sw: Math.min(width - sx, box.width / cover.scaleX),
+    sh: Math.min(height - sy, box.height / cover.scaleY),
+  };
+}
+
+export interface Placement {
+  left: number;
+  top: number;
+}
+
+/**
+ * Where a loupe of `size` goes beside the point `at` in a box: above it,
+ * else below, else to either side, whichever fits whole inside the box
+ * without covering the point. In a box too small for any of those it takes
+ * the roomiest edge, clamped inside.
+ */
+export function loupePlacement(
+  at: { x: number; y: number },
+  box: { width: number; height: number },
+  size: { width: number; height: number },
+  gap = 22,
+  margin = 4,
+): Placement {
+  const across = (value: number) =>
+    Math.max(margin, Math.min(value, box.width - size.width - margin));
+  const down = (value: number) =>
+    Math.max(margin, Math.min(value, box.height - size.height - margin));
+  const above = at.y - gap - size.height,
+    below = at.y + gap,
+    right = at.x + gap,
+    left = at.x - gap - size.width;
+  const fitsY = (top: number) =>
+    top >= margin && top + size.height <= box.height - margin;
+  const fitsX = (side: number) =>
+    side >= margin && side + size.width <= box.width - margin;
+  if (fitsY(above)) return { left: across(at.x - size.width / 2), top: above };
+  if (fitsY(below)) return { left: across(at.x - size.width / 2), top: below };
+  const middle = down(at.y - size.height / 2);
+  if (fitsX(right)) return { left: right, top: middle };
+  if (fitsX(left)) return { left, top: middle };
+  return {
+    left: across(at.x - size.width / 2),
+    top: down(at.y > box.height / 2 ? above : below),
   };
 }
 
@@ -98,19 +207,34 @@ const ARROWS: Record<string, [number, number]> = {
   ArrowDown: [0, 1],
 };
 
-/** The cursor after an arrow key, kept inside the image; null for other keys. */
+/** `pixel` moved inside `bounds`. */
+export function clampPixel(
+  pixel: { x: number; y: number },
+  bounds: Bounds,
+): { x: number; y: number } {
+  return {
+    x: Math.min(bounds.maxX, Math.max(bounds.minX, pixel.x)),
+    y: Math.min(bounds.maxY, Math.max(bounds.minY, pixel.y)),
+  };
+}
+
+/**
+ * The cursor after an arrow key, kept inside the image (or inside `bounds`,
+ * the part of it that shows); null for other keys.
+ */
 export function moveCursor(
   pixel: { x: number; y: number },
   key: string,
   big: boolean,
   width: number,
   height: number,
+  bounds: Bounds = { minX: 0, maxX: width - 1, minY: 0, maxY: height - 1 },
 ): { x: number; y: number } | null {
   const direction = ARROWS[key];
   if (!direction) return null;
   const step = big ? KEY_STEP_BIG : KEY_STEP;
-  return {
-    x: Math.min(width - 1, Math.max(0, pixel.x + direction[0] * step)),
-    y: Math.min(height - 1, Math.max(0, pixel.y + direction[1] * step)),
-  };
+  return clampPixel(
+    { x: pixel.x + direction[0] * step, y: pixel.y + direction[1] * step },
+    bounds,
+  );
 }
