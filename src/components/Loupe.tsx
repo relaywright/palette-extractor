@@ -126,6 +126,8 @@ export default function Loupe({
   // counted. Null when the browser will not let the page read the photo.
   const original = useCallback((): ImageData | null => {
     if (base.current?.samples === samples) return base.current.data;
+    // A refusal holds for the photo, so it is not asked again every render.
+    if (refused.current === samples) return null;
     const image = hero.current;
     if (!image?.complete || !image.naturalWidth) return null;
     const canvas = document.createElement("canvas");
