@@ -23,6 +23,8 @@ import { Swatch, type ValueKind } from "./Swatch";
 export interface PaletteEntry {
   color: RGB;
   population: number;
+  /** The pin holding this color, if it is pinned. */
+  lockId?: string;
 }
 export interface PresentedSwatch extends PaletteEntry {
   /** Stays with the swatch through sorts, recounts and recolors. */
@@ -50,16 +52,12 @@ const empty: Presentation = { swatches: [], finalColors: false, photo: 0 };
 export function usePresentation(
   sorted: PaletteEntry[],
   loaded: object | null,
-  lockedSet: Set<string>,
 ): Presentation {
   const committed = useRef({
     presentation: empty,
     loaded: null as object | null,
   });
   const lastId = useRef(0);
-  // Locks only matter at the moment a new palette arrives, so they are read
-  // here rather than listed as a reason to plan again.
-  const isLocked = (color: RGB) => lockedSet.has(rgbToHex(color));
   const presentation = useMemo(() => {
     const previous = committed.current;
     // Displayed colors live in the grid's animation loop; matching only
@@ -69,11 +67,13 @@ export function usePresentation(
         id: swatch.id,
         rgb: swatch.color,
         target: swatch.color,
-        locked: isLocked(swatch.color),
+        locked: swatch.lockId !== undefined,
+        lockId: swatch.lockId,
       })),
       sorted.map((entry) => ({
         rgb: entry.color,
-        locked: isLocked(entry.color),
+        locked: entry.lockId !== undefined,
+        lockId: entry.lockId,
       })),
       () => `swatch-${++lastId.current}`,
     );
@@ -84,6 +84,7 @@ export function usePresentation(
         color: item.to,
         extracted: item.to,
         population: sorted[slot].population,
+        lockId: sorted[slot].lockId,
       })),
       finalColors,
       photo: previous.presentation.photo + (finalColors ? 1 : 0),
@@ -148,7 +149,6 @@ export function SwatchGrid({
   valueKind,
   total,
   showWeights,
-  lockedSet,
   canLock,
   changedHexes,
   copied,
@@ -161,7 +161,6 @@ export function SwatchGrid({
   valueKind: ValueKind;
   total: number;
   showWeights: boolean;
-  lockedSet: Set<string>;
   canLock: boolean;
   changedHexes: Set<string>;
   copied: string | null;
@@ -354,7 +353,7 @@ export function SwatchGrid({
               id={swatch.id}
               color={swatch.color}
               index={i}
-              locked={lockedSet.has(hex)}
+              locked={swatch.lockId !== undefined}
               weight={total ? swatch.population / total : 0}
               name={names[i]}
               onToggleLock={() => onToggleLock(swatch.id)}
