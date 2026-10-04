@@ -54,10 +54,11 @@ jobs:
           CI: true
 
       # Tests that measure time on the page run alone, so the rest of the
-      # suite running beside them does not decide whether they pass.
+      # suite running beside them does not decide whether they pass. Their
+      # own output folder keeps the first run's traces for the upload below.
       - name: Timing tests
         if: ${{ !cancelled() }}
-        run: npx playwright test --grep @timing --workers=1
+        run: npx playwright test --grep @timing --workers=1 --output=test-results-timing
         env:
           CI: true
 
@@ -75,7 +76,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: test-results
-          path: test-results/
+          path: |
+            test-results/
+            test-results-timing/
           if-no-files-found: ignore
           retention-days: 7
 
