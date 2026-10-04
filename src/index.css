@@ -2270,7 +2270,7 @@ select {
   }
 }
 /* Narrower than about 360px the source row cannot hold all three; the color
-   space switch and Replace drop to a second line together. */
+   space switch and Upload drop to a second line together. */
 @media (max-width: 359px) {
   .source-panel > .section-label {
     flex-wrap: wrap;
@@ -2652,6 +2652,31 @@ select {
   }
 }
 
+/* With two columns the photo stays in view while the palette side grows
+   (comparison, adjustments, shades). Short windows leave it in the flow, so
+   the whole column can always be scrolled to. */
+@media (min-width: 760px) and (min-height: 700px) {
+  .source-panel {
+    position: sticky;
+    top: 24px;
+  }
+}
+/* On phones the source row's upload control reads "Upload" and has a
+   button's outline; wider screens keep the quieter "Replace" link. */
+@media (max-width: 580px) {
+  .source-upload {
+    padding: 0 11px;
+    border: 1px solid #4a4d4f;
+    border-radius: 7px;
+    color: #eceae4;
+  }
+}
+/* The icon is the first thing to go where the row runs out of room. */
+@media (max-width: 389px) {
+  .source-upload > svg {
+    display: none;
+  }
+}
 /* At 12px the source row (title, color space switch, Replace) needs about
    340px, so two columns start at 760px instead of 700px. */
 @media (min-width: 700px) and (max-width: 759px) {

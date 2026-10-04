@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import type { RGB } from "../lib/color";
 import type { PaletteEdit } from "../hooks/usePaletteEdits";
 import { MAX_CHROMA, makeEdit, valueOf } from "../recolor/nudge";
@@ -16,7 +17,43 @@ export function AdjustPanel({
   onChange: (next: PaletteEdit | null) => void;
   onClose: () => void;
 }) {
+  const panel = useRef<HTMLElement>(null);
   const value = valueOf(original, edit);
+  // On phones the panel docks above the tab bar. The stylesheet reads its
+  // height to keep the page, notices and the color-vision badge clear of it,
+  // and the page scrolls the photo into the space above them unless it
+  // already fits.
+  useEffect(() => {
+    const root = document.documentElement;
+    const el = panel.current!;
+    const measure = () =>
+      root.style.setProperty("--adjust-dock", `${el.offsetHeight}px`);
+    root.dataset.adjusting = "";
+    measure();
+    const sizing = new ResizeObserver(measure);
+    sizing.observe(el);
+    const frame = document.querySelector(".source-frame");
+    if (frame && matchMedia("(max-width: 580px)").matches) {
+      const { top, bottom } = frame.getBoundingClientRect();
+      const badge = document.querySelector(".cvd-indicator");
+      const clear = Math.min(
+        el.getBoundingClientRect().top,
+        badge ? badge.getBoundingClientRect().top : Infinity,
+      );
+      if (top < 0 || bottom > clear)
+        frame.scrollIntoView({
+          block: "start",
+          behavior: matchMedia("(prefers-reduced-motion: reduce)").matches
+            ? "auto"
+            : "smooth",
+        });
+    }
+    return () => {
+      sizing.disconnect();
+      delete root.dataset.adjusting;
+      root.style.removeProperty("--adjust-dock");
+    };
+  }, []);
   // Back on the swatch, so keyboard focus is not left on a closed panel.
   const close = () => {
     onClose();
@@ -61,6 +98,7 @@ export function AdjustPanel({
   ];
   return (
     <section
+      ref={panel}
       id="adjust-panel"
       className="adjust-panel"
       aria-label={`Adjust ${name}`}
