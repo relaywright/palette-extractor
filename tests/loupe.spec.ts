@@ -382,6 +382,22 @@ test("the keyboard cursor keeps marking its pixel when the page resizes", async 
   await expect(loupeHex(page)).toHaveText("#c8321e");
 });
 
+test("a resize that crops the cursor's pixel moves the cursor and Enter pins what it shows", async ({
+  page,
+}) => {
+  await open(page, "gradient.svg", GRADIENT);
+  await layer(page).focus();
+  // The far left column, which a narrower frame crops away.
+  for (let i = 0; i < 12; i++) await page.keyboard.press("Shift+ArrowLeft");
+  await expect(loupeHex(page)).toBeVisible();
+  const edge = (await loupeHex(page).innerText()).toLowerCase();
+  await page.setViewportSize({ width: 420, height: 900 });
+  await expect(loupeHex(page)).not.toHaveText(edge);
+  const shown = (await loupeHex(page).innerText()).toLowerCase();
+  await page.keyboard.press("Enter");
+  await expect(note(page)).toHaveText(`Pinned ${shown}.`);
+});
+
 test("a thin photo is picked where the page shows it", async ({ page }) => {
   await open(page, "thin.svg", THIN);
   // A wide, short frame shows a few columns of the strip at once.

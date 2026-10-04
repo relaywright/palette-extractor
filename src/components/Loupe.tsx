@@ -250,6 +250,22 @@ export default function Loupe({
     setPick({ ...at, keyboard: true });
   };
 
+  // A resize can crop away the cursor's pixel, so the cursor moves to the
+  // nearest pixel that shows rather than waiting for the next key.
+  useEffect(() => {
+    setPick((current) => {
+      const now = frame();
+      if (!current?.keyboard || !now) return current;
+      const at = clampPixel(
+        current,
+        visiblePixels(now.box, now.cover, width, height),
+      );
+      return at.x === current.x && at.y === current.y
+        ? current
+        : { ...current, ...at };
+    });
+  }, [fit, width, height]);
+
   const say = (message: string) => {
     setNote(message);
     window.clearTimeout(noteTimer.current);
