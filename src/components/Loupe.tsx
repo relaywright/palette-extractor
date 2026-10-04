@@ -217,7 +217,13 @@ export default function Loupe({
     );
   }, [pick, view]);
 
-  useEffect(() => () => window.clearTimeout(noteTimer.current), []);
+  useEffect(
+    () => () => {
+      window.clearTimeout(noteTimer.current);
+      settle.current?.abort();
+    },
+    [],
+  );
 
   // The layer's box as it is now, read when a pointer or key needs it.
   const frame = () => {
@@ -289,10 +295,23 @@ export default function Loupe({
   // A release only pins when its press began on the photo: a drag that ends
   // over it is not a click.
   const down = useRef<number | null>(null);
+  // A mouse released off the photo never reaches it, so the press is also
+  // cleared by whichever release or cancel the page sees first. That runs
+  // after the photo's own handler, which still reads the press.
+  const settle = useRef<AbortController>();
   const start = (event: PointerEvent) => {
     pressed.current = true;
     down.current =
       event.isPrimary && event.button === 0 ? event.pointerId : null;
+    settle.current?.abort();
+    const done = new AbortController();
+    settle.current = done;
+    const clear = () => {
+      down.current = null;
+      done.abort();
+    };
+    window.addEventListener("pointerup", clear, { signal: done.signal });
+    window.addEventListener("pointercancel", clear, { signal: done.signal });
     track(event);
   };
   const lift = (event: PointerEvent) => {

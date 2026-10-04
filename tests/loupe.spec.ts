@@ -351,6 +351,32 @@ test("keyboard picking stays on the part of the photo that shows", async ({
   }
 });
 
+test("a press on the photo released elsewhere does not turn a later drag onto the photo into a pin", async ({
+  page,
+}) => {
+  await open(page, "gradient.svg", GRADIENT);
+  const frame = (await layer(page).boundingBox())!;
+  const middle = {
+    x: frame.x + frame.width / 2,
+    y: frame.y + frame.height / 2,
+  };
+  // The page margin: bare, so a press there starts no text drag.
+  const away = { x: 6, y: middle.y };
+  // Press on the photo, drag off it and let go: the photo never sees the release.
+  await page.mouse.move(middle.x, middle.y);
+  await page.mouse.down();
+  await page.mouse.move(away.x, away.y, { steps: 6 });
+  await page.mouse.up();
+  await page.evaluate(() => getSelection()?.removeAllRanges());
+  // A later press elsewhere, dragged onto the photo, is still not a click on it.
+  await page.mouse.down();
+  await page.mouse.move(middle.x, middle.y, { steps: 6 });
+  await page.mouse.up();
+  await page.waitForTimeout(400);
+  await expect(lockedCount(page)).toHaveCount(0);
+  await expect(note(page)).toHaveText("");
+});
+
 test("the keyboard cursor keeps marking its pixel when the page resizes", async ({
   page,
 }) => {
