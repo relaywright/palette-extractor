@@ -456,8 +456,12 @@ export default function Stage({
     const hover = (event: PointerEvent) => {
       // A finger's pick is kept apart from the pointer's hover: it outlasts
       // the touch, until a key or another tap takes over.
-      if (event.pointerType === "touch") tapped = swatchAt(event.target);
-      else {
+      if (event.pointerType === "touch") {
+        tapped = swatchAt(event.target);
+        // The tap is what the viewer just did, even if a mouse is still
+        // resting on another swatch.
+        hovered = -1;
+      } else {
         hovered = swatchAt(event.target);
         tapped = -1;
       }
