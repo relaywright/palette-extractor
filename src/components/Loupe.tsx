@@ -59,6 +59,7 @@ const MESSAGES: Record<PinOutcome, (hex: string) => string> = {
   full: () => "The palette is full at 10 colors. Unlock one to pin another.",
   busy: () => "Still finding colors. Try again in a moment.",
 };
+const UNREADABLE = "This photo cannot be sampled.";
 
 /**
  * Hover (or arrow keys, or a tap in pick mode) over the photo to read one
@@ -86,6 +87,8 @@ export default function Loupe({
   const layer = useRef<HTMLDivElement>(null);
   const zoom = useRef<HTMLCanvasElement>(null);
   const base = useRef<{ samples: StageSamples; data: ImageData } | null>(null);
+  // The samples whose photo the browser refused to let the page read.
+  const refused = useRef<StageSamples | null>(null);
   const seen = useRef<{
     samples: StageSamples;
     model: RecolorModel | null;
@@ -137,6 +140,7 @@ export default function Loupe({
         data: context.getImageData(0, 0, width, height),
       };
     } catch {
+      refused.current = samples;
       return null;
     }
     return base.current.data;
@@ -300,7 +304,8 @@ export default function Loupe({
   const pin = (x: number, y: number) => {
     const picked = readAt(x, y)?.seen;
     if (!picked) {
-      if (model && !view()) say(MESSAGES.busy(""));
+      if (refused.current === samples) say(UNREADABLE);
+      else if (model && !view()) say(MESSAGES.busy(""));
       return;
     }
     say(MESSAGES[onPin(picked)](rgbToHex(picked)));

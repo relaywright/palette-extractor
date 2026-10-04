@@ -15,6 +15,7 @@ import { extname, join, resolve } from "node:path";
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { imageSize, ready } from "./helpers";
+import { hexes } from "./touch-checks";
 import { writeServiceWorker } from "../scripts/sw-build.mjs";
 
 // Every spec here runs against the production build, where the service
@@ -629,12 +630,19 @@ test.describe("across two different deploys", () => {
 
     const exportTab = (page: Page) =>
       page.getByRole("tab", { name: "Export palette" });
+    const notice = (page: Page) => page.locator(".panel-boundary");
+    const reloadButton = (page: Page) =>
+      page.getByRole("button", { name: "Reload page" });
     // A shared script keeps its name across the two copies of the site, which
     // a real deploy would rename, so the browser must not keep it.
     test.beforeEach(() => {
       uncached = true;
     });
-    const visit = async (page: Page) => {
+    const visit = async (
+      page: Page,
+      size?: { width: number; height: number },
+    ) => {
+      if (size) await page.setViewportSize(size);
       await page.goto(origin);
       await ready(page);
     };
@@ -643,90 +651,143 @@ test.describe("across two different deploys", () => {
       page.on("load", () => count.loads++);
       return count;
     };
-
-    test("a dropped connection leaves the app up and a retry loads the panel", async ({
-      page,
-    }) => {
+    const failOnce = async (page: Page, pattern: string | RegExp) => {
       let blocked = false;
-      await page.route(/\/assets\/ExportPanel-[\w-]+\.js$/, (route) => {
+      await page.route(pattern, (route) => {
         if (blocked) return route.continue();
         blocked = true;
         return route.abort();
       });
-      await visit(page);
-      await page.evaluate(() => {
-        (window as unknown as { sameDocument: boolean }).sameDocument = true;
-      });
-      const count = loadsOf(page);
-      await exportTab(page).click();
-      const notice = page.getByText(
-        "This part could not load. Check your connection, then try again.",
+    };
+    const fail = (page: Page, pattern: string | RegExp) =>
+      page.route(pattern, (route) => route.abort());
+    // The chunk a panel imports besides the app's own shared code, named from
+    // the build's chunk graph rather than guessed.
+    const dependencyOf = (source: string) => {
+      const manifest = JSON.parse(
+        readFileSync(join("dist", ".vite", "manifest.json"), "utf8"),
+      ) as Record<string, { file: string; imports?: string[] }>;
+      const own = (manifest[source].imports ?? []).filter(
+        (key) => key !== "index.html" && !key.startsWith("_index"),
       );
-      await expect(notice).toBeVisible();
-      // The page was not replaced: its state, and the rest of the app, stay.
-      await page.waitForTimeout(1000);
-      expect(count.loads).toBe(0);
-      expect(
-        await page.evaluate(
-          () => (window as unknown as { sameDocument?: boolean }).sameDocument,
-        ),
-      ).toBe(true);
-      await expect(page.locator(".swatch")).toHaveCount(6);
+      expect(own.length).toBeGreaterThan(0);
+      return manifest[own[0]].file;
+    };
+    const nudgeSwatch = async (page: Page, index: number) => {
+      const before = (await hexes(page))[index];
+      await page.locator(".swatch-select").nth(index).focus();
+      await page.keyboard.press("Shift+ArrowUp");
+      await expect
+        .poll(async () => (await hexes(page))[index])
+        .not.toBe(before);
+    };
+    const checkAxe = async (page: Page) => {
       const violations = (
         await new AxeBuilder({ page })
           .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
           .analyze()
       ).violations;
       expect(violations).toEqual([]);
-      await page.getByRole("button", { name: "Try again" }).click();
-      await expect(page.locator("html")).toHaveAttribute("data-build", "one");
-      await expect(notice).toHaveCount(0);
-    });
+    };
 
-    test("a part that opens over the page shows its notice as a card the page can dismiss", async ({
-      page,
-    }) => {
-      await page.setViewportSize({ width: 390, height: 800 });
-      await page.route(/\/assets\/ShortcutSheet-[\w-]+\.js$/, (route) =>
-        route.abort(),
-      );
-      await visit(page);
-      await page.keyboard.press("?");
-      const notice = page.getByText("This part could not load", {
-        exact: false,
+    const panels = [
+      {
+        name: "its own chunk",
+        tab: "Export palette",
+        chunk: () => /\/assets\/ExportPanel-[\w-]+\.js$/,
+        shown: (page: Page) =>
+          expect(page.locator("html")).toHaveAttribute("data-build", "one"),
+      },
+      {
+        name: "a chunk it imports",
+        tab: "Export palette",
+        chunk: () => `**/${dependencyOf("src/components/ExportPanel.tsx")}`,
+        shown: (page: Page) =>
+          expect(page.locator("html")).toHaveAttribute("data-build", "one"),
+      },
+      {
+        name: "a chunk the contrast panel imports",
+        tab: "Contrast check",
+        chunk: () => `**/${dependencyOf("src/components/ContrastPanel.tsx")}`,
+        shown: (page: Page) =>
+          expect(page.locator(".cvd-control")).toBeVisible(),
+      },
+    ];
+    for (const panel of panels)
+      test(`a panel that fails on ${panel.name} leaves the app up, and Reload page brings it back with the palette`, async ({
+        page,
+      }) => {
+        await failOnce(page, panel.chunk());
+        await visit(page);
+        await nudgeSwatch(page, 2);
+        const shown = await hexes(page);
+        await page.evaluate(() => {
+          (window as unknown as { sameDocument: boolean }).sameDocument = true;
+        });
+        const count = loadsOf(page);
+        await page.getByRole("tab", { name: panel.tab }).click();
+        await expect(notice(page)).toHaveAttribute("role", "alert");
+        await expect(notice(page)).toContainText(
+          "This part of the app could not load.",
+        );
+        await expect(notice(page)).toBeFocused();
+        await expect(
+          page.getByRole("button", { name: "Try again" }),
+        ).toHaveCount(0);
+        // The page is not replaced: its state, and the rest of the app, stay.
+        await page.waitForTimeout(1000);
+        expect(count.loads).toBe(0);
+        expect(
+          await page.evaluate(
+            () =>
+              (window as unknown as { sameDocument?: boolean }).sameDocument,
+          ),
+        ).toBe(true);
+        expect(await hexes(page)).toEqual(shown);
+        await checkAxe(page);
+
+        const reloaded = page.waitForEvent("load");
+        await reloadButton(page).click();
+        await reloaded;
+        // The palette, edits included, travels in the address.
+        expect(page.url()).toContain("#p=");
+        await ready(page);
+        expect(await hexes(page)).toEqual(shown);
+        await expect(page.locator(".image-caption > span").first()).toHaveText(
+          "Shared palette",
+        );
+        await page.getByRole("tab", { name: panel.tab }).click();
+        await panel.shown(page);
+        await expect(notice(page)).toHaveCount(0);
       });
-      await expect(notice).toBeVisible();
-      const violations = (
-        await new AxeBuilder({ page })
-          .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
-          .analyze()
-      ).violations;
-      expect(violations).toEqual([]);
-      await page.getByRole("button", { name: "Dismiss" }).click();
-      await expect(notice).toHaveCount(0);
-      await expect(page.locator(".swatch")).toHaveCount(6);
-    });
 
-    test("a tab on an older deploy reloads once into the current one", async ({
+    test("a tab on an older deploy offers a newer version and reloads into it only when asked", async ({
       page,
     }) => {
       await visit(page);
       expect(await entry(page)).toContain("/main-one.js");
+      const shown = await hexes(page);
       current = "two";
       missing = new Set(["/assets/ExportPanel-one.js"]);
       const count = loadsOf(page);
-      const reloaded = page.waitForEvent("load");
       await exportTab(page).click();
+      await expect(notice(page)).toContainText(
+        "A newer version of the app is available.",
+      );
+      await expect(notice(page)).toBeFocused();
+      await page.waitForTimeout(1000);
+      expect(count.loads).toBe(0);
+      const reloaded = page.waitForEvent("load");
+      await reloadButton(page).click();
       await reloaded;
       await ready(page);
       expect(await entry(page)).toContain("/main-two.js");
+      expect(await hexes(page)).toEqual(shown);
       await exportTab(page).click();
       await expect(page.locator("html")).toHaveAttribute("data-build", "two");
-      await page.waitForTimeout(1000);
-      expect(count.loads).toBe(1);
     });
 
-    test("a panel missing from the current deploy too does not start a reload loop", async ({
+    test("a panel missing from every deploy keeps offering a reload and never starts one", async ({
       page,
     }) => {
       await visit(page);
@@ -736,38 +797,146 @@ test.describe("across two different deploys", () => {
         "/assets/ExportPanel-two.js",
       ]);
       const count = loadsOf(page);
-      const reloaded = page.waitForEvent("load");
       await exportTab(page).click();
+      await expect(notice(page)).toContainText(
+        "A newer version of the app is available.",
+      );
+      const reloaded = page.waitForEvent("load");
+      await reloadButton(page).click();
       await reloaded;
       await ready(page);
       await exportTab(page).click();
-      await expect(
-        page.getByText("This part could not load", { exact: false }),
-      ).toBeVisible();
+      await expect(notice(page)).toContainText(
+        "This part of the app could not load.",
+      );
       await page.waitForTimeout(1500);
       expect(count.loads).toBe(1);
     });
 
-    test("a build that already caused a reload is never reloaded for again", async ({
+    test("a bug in a panel shows the general message without checking for a new build", async ({
       page,
     }) => {
+      await page.route(/\/assets\/ExportPanel-[\w-]+\.js$/, (route) =>
+        route.fulfill({
+          contentType: "text/javascript",
+          body: 'export const ExportPanel = () => { throw new Error("broken panel"); };',
+        }),
+      );
+      const logged: string[] = [];
+      page.on("console", (message) => {
+        if (message.type() === "error") logged.push(message.text());
+      });
       await visit(page);
-      current = "two";
-      missing = new Set(["/assets/ExportPanel-one.js"]);
-      await page.evaluate((origin) => {
-        sessionStorage.setItem(
-          `reloaded-for:${origin}/assets/main-two.js`,
-          "1",
-        );
-      }, origin);
-      const count = loadsOf(page);
+      const checked: string[] = [];
+      page.on("request", (request) => {
+        if (request.url() === `${origin}/`) checked.push(request.url());
+      });
       await exportTab(page).click();
-      await expect(
-        page.getByText("This part could not load", { exact: false }),
-      ).toBeVisible();
+      await expect(notice(page)).toHaveText(
+        /Something went wrong in this part of the app\./,
+      );
+      await expect(notice(page)).toBeFocused();
+      await expect(reloadButton(page)).toBeVisible();
+      expect(logged.join("\n")).toContain("broken panel");
       await page.waitForTimeout(1000);
-      expect(count.loads).toBe(0);
+      expect(checked).toEqual([]);
+      await expect(page.locator(".swatch")).toHaveCount(6);
     });
+
+    test("closing a camera that cannot load turns the camera button back on", async ({
+      page,
+    }) => {
+      await fail(page, /\/assets\/CameraCapture-[\w-]+\.js$/);
+      await visit(page);
+      const camera = page.getByRole("button", { name: "Use camera" });
+      await camera.click();
+      await expect(notice(page)).toBeVisible();
+      await expect(notice(page)).toBeFocused();
+      await expect(camera).toBeDisabled();
+      await page.getByRole("button", { name: "Dismiss" }).click();
+      await expect(notice(page)).toHaveCount(0);
+      await expect(camera).toBeEnabled();
+      await expect(page.locator(".swatch")).toHaveCount(6);
+    });
+
+    test("dismissing the notice for a color-vision simulation turns the simulation off", async ({
+      page,
+    }) => {
+      await fail(page, /\/assets\/CvdFilterDefs-[\w-]+\.js$/);
+      await visit(page);
+      await page.getByRole("tab", { name: "Contrast check" }).click();
+      const protanopia = page.getByRole("radio", { name: /protanopia/i });
+      await protanopia.check();
+      await expect(notice(page)).toBeVisible();
+      await page.getByRole("button", { name: "Dismiss" }).click();
+      await expect(notice(page)).toHaveCount(0);
+      await expect(protanopia).not.toBeChecked();
+      await expect(page.getByRole("radio", { name: /none/i })).toBeChecked();
+    });
+
+    test("the tool sheet's notice sits in the sheet's place and the tab bar keeps working", async ({
+      page,
+    }) => {
+      await fail(page, /\/assets\/BottomSheet-[\w-]+\.js$/);
+      await visit(page, { width: 390, height: 844 });
+      const inPlace = page.locator(".workbench .panel-boundary");
+      await expect(inPlace).toContainText(
+        "This part of the app could not load.",
+      );
+      await expect(
+        inPlace.getByRole("button", { name: "Dismiss" }),
+      ).toHaveCount(0);
+      const contrast = page.getByRole("tab", { name: "Contrast check" });
+      await contrast.click();
+      await expect(contrast).toHaveAttribute("aria-selected", "true");
+      await expect(inPlace).toBeVisible();
+      // The failure comes back after each choice, but never takes focus off
+      // the bar, so its arrow keys still move between tabs.
+      await expect(contrast).toBeFocused();
+      await page.keyboard.press("ArrowRight");
+      await expect(
+        page.getByRole("tab", { name: "How it works" }),
+      ).toBeFocused();
+      await page.getByRole("tab", { name: "Export palette" }).click();
+      await expect(
+        page.getByRole("tab", { name: "Export palette" }),
+      ).toHaveAttribute("aria-selected", "true");
+      await expect(inPlace).toBeVisible();
+    });
+
+    for (const size of [
+      { width: 390, height: 844 },
+      { width: 1440, height: 1000 },
+    ])
+      test(`stacked notices pass axe and do not overlap at ${size.width}px`, async ({
+        page,
+      }) => {
+        await fail(
+          page,
+          /\/assets\/(ExportPanel|CameraCapture|ShortcutSheet)-[\w-]+\.js$/,
+        );
+        await visit(page, size);
+        await page.getByRole("button", { name: "Use camera" }).click();
+        await expect(notice(page)).toHaveCount(1);
+        await page.keyboard.press("?");
+        const floating = page.locator(".panel-notices > .panel-boundary");
+        await expect(floating).toHaveCount(2);
+        const [first, second] = await floating.evaluateAll((cards) =>
+          cards.map((card) => card.getBoundingClientRect().toJSON()),
+        );
+        expect(first.bottom).toBeLessThanOrEqual(second.top);
+        await page.getByRole("tab", { name: "Export palette" }).click();
+        await expect(notice(page)).toHaveCount(3);
+        await expect(
+          page
+            .locator(".panel-boundary:not(.floating)")
+            .getByText("This part of the app could not load."),
+        ).toBeVisible();
+        await checkAxe(page);
+        await page.getByRole("button", { name: "Dismiss" }).first().click();
+        await expect(floating).toHaveCount(1);
+        await expect(page.locator(".swatch")).toHaveCount(6);
+      });
   });
 });
 
