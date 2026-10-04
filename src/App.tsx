@@ -32,11 +32,11 @@ import { SwatchEditsContext } from "./recolor/swatchEdits";
 import type { StageResult } from "./components/Stage";
 import { stageUnavailable } from "./stage/handoff";
 import type { CameraStatus } from "./hooks/useCamera";
-import { PanelBoundary } from "./components/PanelBoundary";
-import { retryableLazy } from "./lib/retryableLazy";
+import { PanelBoundary, ReloadPalette } from "./components/PanelBoundary";
+import { lazyPanel } from "./lib/lazyPanel";
 
 const loadStage = () => import("./components/Stage");
-const Stage = retryableLazy(loadStage);
+const Stage = lazyPanel(loadStage);
 
 // Resolves once the browser reports the photo as the page's largest paint, so
 // the stage download does not compete with it. Browsers that do not report
@@ -73,35 +73,35 @@ const afterLargestPaint = (image: HTMLImageElement) =>
 
 // "In context" is the default tab. The other tool panels stay off screen
 // until picked, so their code loads in separate chunks.
-const ContrastPanel = retryableLazy(
+const ContrastPanel = lazyPanel(
   () => import("./components/ContrastPanel"),
   "ContrastPanel",
 );
-const PixelSpace = retryableLazy(
+const PixelSpace = lazyPanel(
   () => import("./components/PixelSpace"),
   "PixelSpace",
 );
-const ExportPanel = retryableLazy(
+const ExportPanel = lazyPanel(
   () => import("./components/ExportPanel"),
   "ExportPanel",
 );
 
-const ShortcutSheet = retryableLazy(
+const ShortcutSheet = lazyPanel(
   () => import("./components/ShortcutSheet"),
   "ShortcutSheet",
 );
 // Recoloring loads on the first edit, so a first visit never downloads it.
-const RecolorLayer = retryableLazy(() => import("./components/RecolorLayer"));
+const RecolorLayer = lazyPanel(() => import("./components/RecolorLayer"));
 const loadNudge = () => import("./recolor/nudge");
-const AdjustPanel = retryableLazy(
+const AdjustPanel = lazyPanel(
   () => import("./components/AdjustPanel"),
   "AdjustPanel",
 );
 // The camera and the phone's tool sheet only load once they are used.
-const CameraCapture = retryableLazy(() => import("./components/CameraCapture"));
-const BottomSheet = retryableLazy(() => import("./components/BottomSheet"));
-const SpaceCompare = retryableLazy(() => import("./components/SpaceCompare"));
-const PhotoTools = retryableLazy(() => import("./components/PhotoTools"));
+const CameraCapture = lazyPanel(() => import("./components/CameraCapture"));
+const BottomSheet = lazyPanel(() => import("./components/BottomSheet"));
+const SpaceCompare = lazyPanel(() => import("./components/SpaceCompare"));
+const PhotoTools = lazyPanel(() => import("./components/PhotoTools"));
 
 const samples: Source[] = [
   {
@@ -683,7 +683,7 @@ export default function App() {
                 </div>
               )}
               {edits.touched && loaded && (
-                <PanelBoundary floating>
+                <PanelBoundary floating resetKey={loaded.src}>
                   <Suspense fallback={null}>
                     <RecolorLayer
                       image={hero}
@@ -704,14 +704,17 @@ export default function App() {
                 data-stage-frames="0"
               >
                 {stageReady && stageResult && (
-                  <PanelBoundary floating>
+                  <PanelBoundary floating resetKey={stageResult.image.src}>
                     <Suspense fallback={null}>
                       <Stage
                         result={stageResult}
                         host={stageHost}
                         hero={hero}
                         overlay={(focus) => (
-                          <PanelBoundary floating>
+                          <PanelBoundary
+                            floating
+                            resetKey={stageResult.image.src}
+                          >
                             <Suspense fallback={null}>
                               <PhotoTools
                                 samples={stageResult.samples}
@@ -742,7 +745,11 @@ export default function App() {
                 </span>
               )}
               {camera !== "off" && (
-                <PanelBoundary floating>
+                <PanelBoundary
+                  floating
+                  resetKey={camera}
+                  onDismiss={() => setCamera("off")}
+                >
                   <Suspense fallback={null}>
                     <CameraCapture
                       request={{
@@ -1070,7 +1077,7 @@ export default function App() {
             ))}
           </div>
           {phone ? (
-            <PanelBoundary floating>
+            <PanelBoundary resetKey={`${toolSheetOpen}:${activeTab}`}>
               <Suspense fallback={null}>
                 <BottomSheet
                   open={toolSheetOpen}
@@ -1106,13 +1113,14 @@ export default function App() {
         {notice}
       </span>
       {sheetOpen && (
-        <PanelBoundary floating>
+        <PanelBoundary floating onDismiss={() => setSheetOpen(false)}>
           <Suspense fallback={null}>
             <ShortcutSheet onClose={() => setSheetOpen(false)} />
           </Suspense>
         </PanelBoundary>
       )}
       <CvdFilters />
+      <ReloadPalette colors={colors} />
       {dragging && (
         <div className="drop-overlay">
           <Icon name="upload" size={44} />

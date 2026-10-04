@@ -9,11 +9,11 @@ import {
 } from "../lib/theme";
 import { Icon } from "./Icon";
 import { PanelBoundary } from "./PanelBoundary";
-import { retryableLazy } from "../lib/retryableLazy";
+import { lazyPanel } from "../lib/lazyPanel";
 import { formatRatio } from "../lib/contrast";
 import "./theme-preview.css";
 
-const ThemeTools = retryableLazy(() => import("./ThemeTools"), "ThemeTools");
+const ThemeTools = lazyPanel(() => import("./ThemeTools"), "ThemeTools");
 
 const levelOf = (ratio: number) =>
   ratio >= 7 ? "AAA" : ratio >= 4.5 ? "AA" : "Below AA for body text";
