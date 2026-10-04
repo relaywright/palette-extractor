@@ -149,6 +149,92 @@ test.describe("phone", () => {
   });
 });
 
+test.describe("single column without a tab bar", () => {
+  for (const viewport of [
+    { width: 600, height: 900 },
+    { width: 720, height: 1000 },
+  ])
+    test(`Adjust docks at the bottom with the photo in view at ${viewport.width}px`, async ({
+      page,
+    }) => {
+      await page.setViewportSize(viewport);
+      await page.goto("/");
+      await ready(page);
+      await settled(page);
+      await page.evaluate(() => document.fonts.ready);
+      await page.locator(".swatch-select").nth(4).scrollIntoViewIfNeeded();
+      await openAdjust(page, 4);
+      await expect
+        .poll(() =>
+          page.evaluate(() => {
+            const frame = document
+              .querySelector(".source-frame")!
+              .getBoundingClientRect();
+            const panel = document
+              .querySelector(".adjust-panel")!
+              .getBoundingClientRect();
+            return {
+              docked: Math.abs(panel.bottom - innerHeight) <= 1,
+              photoShown: frame.top >= 0 && frame.bottom <= panel.top,
+            };
+          }),
+        )
+        .toEqual({ docked: true, photoShown: true });
+      // A keyboard is likely here, so the shortcut hint stays.
+      await expect(page.locator(".adjust-keys")).toBeVisible();
+    });
+
+  test("a phone on its side keeps the panel in the page", async ({ page }) => {
+    await page.setViewportSize({ width: 667, height: 375 });
+    await page.goto("/");
+    await ready(page);
+    await openAdjust(page, 1);
+    expect(
+      await page
+        .locator(".adjust-panel")
+        .evaluate((el) => getComputedStyle(el).position),
+    ).toBe("static");
+    expect(
+      await page.evaluate(
+        () => "adjusting" in document.documentElement.dataset,
+      ),
+    ).toBe(true);
+  });
+
+  test("a file dragged over the page shows its drop target above the panel", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 720, height: 1000 });
+    await page.goto("/");
+    await ready(page);
+    await openAdjust(page, 1);
+    await page.evaluate(() => {
+      const data = new DataTransfer();
+      data.items.add(new File(["x"], "photo.png", { type: "image/png" }));
+      window.dispatchEvent(
+        new DragEvent("dragenter", { dataTransfer: data, bubbles: true }),
+      );
+    });
+    await expect(page.locator(".drop-overlay")).toBeVisible();
+    // The panel's middle is covered by the drop target. The target ignores
+    // the pointer, so hit testing has to be switched on to see it.
+    await page.addStyleTag({
+      content: ".drop-overlay { pointer-events: auto !important; }",
+    });
+    const onTop = await page.evaluate(() => {
+      const box = document
+        .querySelector(".adjust-panel")!
+        .getBoundingClientRect();
+      const hit = document.elementFromPoint(
+        box.left + box.width / 2,
+        box.top + box.height / 2,
+      );
+      return !!hit?.closest(".drop-overlay");
+    });
+    expect(onTop).toBe(true);
+  });
+});
+
 test.describe("desktop", () => {
   for (const viewport of [
     { width: 1440, height: 900 },

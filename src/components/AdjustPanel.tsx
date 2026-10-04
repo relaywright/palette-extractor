@@ -4,6 +4,9 @@ import type { PaletteEdit } from "../hooks/usePaletteEdits";
 import { MAX_CHROMA, makeEdit, valueOf } from "../recolor/nudge";
 import "./recolor.css";
 
+/** Matches the stylesheet's docked layout. */
+const DOCKED = "(max-width: 580px), (max-width: 759px) and (min-height: 600px)";
+
 export function AdjustPanel({
   name,
   original,
@@ -19,10 +22,10 @@ export function AdjustPanel({
 }) {
   const panel = useRef<HTMLElement>(null);
   const value = valueOf(original, edit);
-  // On phones the panel docks above the tab bar. The stylesheet reads its
-  // height to keep the page, notices and the color-vision badge clear of it,
-  // and the page scrolls the photo into the space above them unless it
-  // already fits.
+  // In a single-column layout the panel docks at the bottom of the screen
+  // (above the tab bar on phones). The stylesheet reads its height to keep
+  // the page, notices and the color-vision badge clear of it, and the page
+  // scrolls the photo into the space above them unless it already fits.
   useEffect(() => {
     const root = document.documentElement;
     const el = panel.current!;
@@ -33,7 +36,7 @@ export function AdjustPanel({
     const sizing = new ResizeObserver(measure);
     sizing.observe(el);
     const frame = document.querySelector(".source-frame");
-    if (frame && matchMedia("(max-width: 580px)").matches) {
+    if (frame && matchMedia(DOCKED).matches) {
       const { top, bottom } = frame.getBoundingClientRect();
       const badge = document.querySelector(".cvd-indicator");
       const clear = Math.min(
