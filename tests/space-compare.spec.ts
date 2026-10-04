@@ -101,3 +101,16 @@ for (const size of WIDTHS)
     await page.locator(".space-compare").scrollIntoViewIfNeeded();
     await noAxeViolations(page);
   });
+
+test("the color-vision simulation reaches the comparison chips", async ({
+  page,
+}) => {
+  await open(page);
+  await toggle(page).click();
+  await expect(rows(page)).toHaveCount(2);
+  const chip = page.locator(".space-compare-rows td i").first();
+  await expect(chip).toHaveCSS("filter", "none");
+  await page.getByRole("tab", { name: "Contrast check" }).click();
+  await page.getByRole("radio", { name: "Deuteranopia" }).check();
+  await expect(chip).toHaveCSS("filter", 'url("#cvd-deuteranopia")');
+});

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useReducer } from "react";
+import { useCallback, useEffect, useMemo, useReducer } from "react";
 import { type RGB, rgbToHex } from "../lib/color";
 
 /** A swatch's edited OKLCH coordinates and the sRGB color they make. */
@@ -19,6 +19,12 @@ export interface EditState {
   edits: Record<string, PaletteEdit>;
   /** Some swatch was edited since this extraction, even if reset since. */
   touched: boolean;
+  /**
+   * The photo whose edits ride through the next extraction, set when a color
+   * is pinned from the photo: that re-extraction is the viewer adding a
+   * color, not starting over.
+   */
+  carrying: string | null;
 }
 
 /** An edit, or a function from the swatch's latest edit to its next one. */
@@ -29,12 +35,18 @@ export type EditUpdate =
 
 export type EditAction =
   | { type: "set"; signature: string; id: string; edit: EditUpdate }
-  | { type: "reset"; signature: string };
+  | { type: "reset"; signature: string }
+  /** The extraction changed: keep what a pin carries, drop the rest. */
+  | { type: "retarget"; signature: string; photo: string; ids: string[] }
+  | { type: "pin"; photo: string }
+  /** An extraction finished without needing the pin's carry. */
+  | { type: "settle" };
 
 export const emptyEdits = (signature: string): EditState => ({
   signature,
   edits: {},
   touched: false,
+  carrying: null,
 });
 
 /** Identifies an extraction: the photo plus the set of colors it produced. */
@@ -42,6 +54,22 @@ export const paletteSignature = (colors: RGB[], photo: string) =>
   `${photo}|${colors.map(rgbToHex).sort().join(".")}`;
 
 export function editsReducer(state: EditState, action: EditAction): EditState {
+  switch (action.type) {
+    case "pin":
+      return { ...state, carrying: action.photo };
+    case "settle":
+      return state.carrying === null ? state : { ...state, carrying: null };
+    case "retarget": {
+      if (state.signature === action.signature) return state;
+      // A pin changes the extracted colors but not the swatches that were
+      // already there: their edits stay with them.
+      if (state.carrying !== action.photo) return emptyEdits(action.signature);
+      const edits = Object.fromEntries(
+        Object.entries(state.edits).filter(([id]) => action.ids.includes(id)),
+      );
+      return { ...state, signature: action.signature, edits, carrying: null };
+    }
+  }
   // An edit made against another extraction starts from nothing.
   const base =
     state.signature === action.signature ? state : emptyEdits(action.signature);
@@ -87,7 +115,8 @@ export function editedPalette(
  * or exports it. `ids` names the swatch of each extracted color, from the
  * unedited extraction. `colors` is the palette to display, in the order of
  * `extracted`; `current` is each swatch's stored edit, if it has one.
- * Edits drop when the photo or the extracted set changes.
+ * Edits drop when the photo or the extracted set changes, except across a
+ * pin (`carryThroughPin`), where swatches that survive keep theirs.
  */
 export function usePaletteEdits(
   extracted: RGB[],
@@ -97,11 +126,14 @@ export function usePaletteEdits(
   const signature = paletteSignature(extracted, photo);
   const [stored, dispatch] = useReducer(editsReducer, signature, emptyEdits);
   const stale = stored.signature !== signature;
-  // Letting go of an old extraction's edits during render (a reset against
-  // a new signature starts empty), so nothing ever paints them against a new
-  // palette.
-  if (stale) dispatch({ type: "reset", signature });
-  const state = stale ? emptyEdits(signature) : stored;
+  // Letting go of an old extraction's edits during render (retargeting to a
+  // new signature starts empty, unless a pin is carrying them), so nothing
+  // ever paints them against a new palette.
+  const retarget = { type: "retarget", signature, photo, ids } as const;
+  if (stale) dispatch(retarget);
+  const state = stale ? editsReducer(stored, retarget) : stored;
+  // A pin that left the extracted colors as they were has nothing to carry.
+  useEffect(() => dispatch({ type: "settle" }), [extracted]);
 
   const colors = useMemo(
     () => editedPalette(extracted, ids, state.edits),
@@ -119,6 +151,10 @@ export function usePaletteEdits(
     () => dispatch({ type: "reset", signature }),
     [signature],
   );
+  const carryThroughPin = useCallback(
+    () => dispatch({ type: "pin", photo }),
+    [photo],
+  );
 
   return {
     colors,
@@ -127,5 +163,6 @@ export function usePaletteEdits(
     signature,
     setEdit,
     resetAll,
+    carryThroughPin,
   };
 }

@@ -11,6 +11,27 @@ import {
   WIDTHS,
 } from "./touch-checks";
 
+// A 1000 by 1 photo of narrow colored stripes. The quantizer sees it as a
+// 320 by 1 raster, whose proportions differ from the photo's, so placing
+// picks by the raster's would choose other stripes than the page shows.
+const STRIPES = [
+  "#c8321e",
+  "#f4c300",
+  "#2a9d5c",
+  "#1e64c8",
+  "#8a2bd6",
+  "#ffffff",
+];
+const THIN = Buffer.from(
+  `<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="1">` +
+    Array.from(
+      { length: 334 },
+      (_, i) =>
+        `<rect x="${i * 3}" width="3" height="1" fill="${STRIPES[i % STRIPES.length]}"/>`,
+    ).join("") +
+    `</svg>`,
+);
+
 const layer = (page: Page) => page.locator(".photo-pick");
 const loupeHex = (page: Page) => page.locator(".loupe-hex");
 const note = (page: Page) => page.locator(".pin-note");
@@ -151,3 +172,237 @@ for (const size of WIDTHS)
     await expect(note(page)).toContainText("Pinned");
     await noAxeViolations(page);
   });
+
+/** Presses an edit key on a swatch until its hex changes, `times` over. */
+async function nudge(page: Page, index: number, key: string, times = 3) {
+  await page.locator(".swatch-select").nth(index).focus();
+  for (let i = 0; i < times; i++) {
+    const before = (await hexes(page))[index];
+    await page.keyboard.press(key);
+    await expect.poll(async () => (await hexes(page))[index]).not.toBe(before);
+  }
+}
+
+const inside = (
+  inner: { x: number; y: number; width: number; height: number },
+  outer: { x: number; y: number; width: number; height: number },
+) =>
+  inner.x >= outer.x - 1 &&
+  inner.y >= outer.y - 1 &&
+  inner.x + inner.width <= outer.x + outer.width + 1 &&
+  inner.y + inner.height <= outer.y + outer.height + 1;
+
+test("the loupe reads the recolored photo, and pins what it shows", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await ready(page);
+  await stageDone(page);
+  await upload(page, "halves.svg", HALVES);
+  const red = (await hexes(page)).indexOf("#c8321e");
+  expect(red).toBeGreaterThanOrEqual(0);
+  await nudge(page, red, "Shift+ArrowRight");
+  const edited = (await hexes(page))[red];
+  expect(edited).not.toBe("#c8321e");
+  await photoView(page);
+
+  await layer(page).hover({ position: { x: 120, y: 160 } });
+  await expect(loupeHex(page)).toHaveText(edited);
+  // The recolored pixels still belong to the swatch they came from.
+  await expect(
+    page.locator(".swatch[data-picked] .swatch-info code"),
+  ).toHaveText(edited);
+  await layer(page).hover({ position: { x: 480, y: 160 } });
+  await expect(loupeHex(page)).toHaveText("#1e64c8");
+
+  await layer(page).click({ position: { x: 120, y: 160 } });
+  await expect(note(page)).toHaveText(`Pinned ${edited}.`);
+});
+
+test("pinning a color keeps the edits on the swatches that stay", async ({
+  page,
+}) => {
+  await open(page, "gradient.svg", GRADIENT);
+  await nudge(page, 3, "Shift+ArrowRight");
+  const edited = (await hexes(page))[3];
+  await expect(page.locator(".edit-marker")).toHaveCount(1);
+
+  await layer(page).click({ position: { x: 210, y: 90 } });
+  await expect(lockedCount(page)).toHaveCount(1);
+  await ready(page);
+  await expect(page.locator(".edit-marker")).toHaveCount(1);
+  expect(await hexes(page)).toContain(edited);
+});
+
+test("a color space change still starts the edits over", async ({ page }) => {
+  await open(page, "gradient.svg", GRADIENT);
+  await nudge(page, 3, "Shift+ArrowRight");
+  await expect(page.locator(".edit-marker")).toHaveCount(1);
+  await page.getByRole("radio", { name: "Perceptual" }).check();
+  await ready(page);
+  await expect(page.locator(".edit-marker")).toHaveCount(0);
+});
+
+test("a mouse release over the photo does not pin when the press began elsewhere", async ({
+  page,
+}) => {
+  await open(page, "gradient.svg", GRADIENT);
+  const frame = (await layer(page).boundingBox())!;
+  const heading = (await page.locator("h1").boundingBox())!;
+  await page.mouse.move(heading.x + 4, heading.y + heading.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(frame.x + frame.width / 2, frame.y + frame.height / 2, {
+    steps: 6,
+  });
+  await page.mouse.up();
+  await page.waitForTimeout(400);
+  await expect(lockedCount(page)).toHaveCount(0);
+  await expect(note(page)).toHaveText("");
+  // A press and release on the photo still pins.
+  await page.mouse.click(frame.x + frame.width / 2, frame.y + frame.height / 2);
+  await expect(lockedCount(page)).toHaveCount(1);
+});
+
+test("keyboard picking stays on the part of the photo that shows", async ({
+  page,
+}) => {
+  await open(page, "gradient.svg", GRADIENT);
+  await layer(page).focus();
+  const frame = (await layer(page).boundingBox())!;
+  const ring = page.locator(".pick-ring");
+  for (const [key, times] of [
+    ["Shift+ArrowUp", 14],
+    ["Shift+ArrowDown", 28],
+    ["Shift+ArrowLeft", 24],
+    ["Shift+ArrowRight", 48],
+  ] as const) {
+    for (let i = 0; i < times; i++) await page.keyboard.press(key);
+    const at = (await ring.boundingBox())!;
+    const center = { x: at.x + at.width / 2, y: at.y + at.height / 2 };
+    expect(center.x, key).toBeGreaterThanOrEqual(frame.x);
+    expect(center.x, key).toBeLessThanOrEqual(frame.x + frame.width);
+    expect(center.y, key).toBeGreaterThanOrEqual(frame.y);
+    expect(center.y, key).toBeLessThanOrEqual(frame.y + frame.height);
+  }
+});
+
+test("the keyboard cursor keeps marking its pixel when the page resizes", async ({
+  page,
+}) => {
+  await open(page, "halves.svg", HALVES);
+  await layer(page).focus();
+  // Ten steps left of the middle: working pixel 140 of 320.
+  for (let i = 0; i < 10; i++) await page.keyboard.press("ArrowLeft");
+  const ring = page.locator(".pick-ring");
+  await expect(loupeHex(page)).toHaveText("#c8321e");
+  const marked = async () => {
+    const box = (await layer(page).boundingBox())!;
+    const at = (await ring.boundingBox())!;
+    const scale = Math.max(box.width / 600, box.height / 330);
+    const offsetX = (box.width - 600 * scale) / 2;
+    return {
+      x: at.x + at.width / 2 - box.x,
+      expected: offsetX + (140.5 / 320) * 600 * scale,
+    };
+  };
+  const before = await marked();
+  expect(Math.abs(before.x - before.expected)).toBeLessThan(2);
+  await page.setViewportSize({ width: 620, height: 900 });
+  await expect
+    .poll(async () => {
+      const after = await marked();
+      return Math.abs(after.x - after.expected);
+    })
+    .toBeLessThan(2);
+  await expect(loupeHex(page)).toHaveText("#c8321e");
+});
+
+test("a thin photo is picked where the page shows it", async ({ page }) => {
+  await open(page, "thin.svg", THIN);
+  // A wide, short frame shows a few columns of the strip at once.
+  await page.addStyleTag({ content: ".source-frame { height: 120px }" });
+  const { width, height } = (await layer(page).boundingBox())!;
+  expect(width / height).toBeGreaterThan(4);
+  for (let step = 0; step <= 12; step++) {
+    const x = 2 + ((width - 5) * step) / 12 + 0.37 * (step % 3);
+    await layer(page).hover({ position: { x, y: height / 2 } });
+    await expect(loupeHex(page)).toBeVisible();
+    // The column of the 320 by 1 raster under the pointer when the photo is
+    // placed by its own 1000 by 1 proportions.
+    const expected = await page.evaluate((at) => {
+      const photo = document.querySelector<HTMLImageElement>(
+        ".source-frame > img",
+      )!;
+      const box = document
+        .querySelector(".photo-pick")!
+        .getBoundingClientRect();
+      const scale = Math.max(
+        box.width / photo.naturalWidth,
+        box.height / photo.naturalHeight,
+      );
+      const offset = (box.width - photo.naturalWidth * scale) / 2;
+      const column = Math.floor(
+        ((at - offset) / (scale * photo.naturalWidth)) * 320,
+      );
+      const canvas = document.createElement("canvas");
+      canvas.width = 320;
+      canvas.height = 1;
+      const context = canvas.getContext("2d")!;
+      context.drawImage(photo, 0, 0, 320, 1);
+      const [r, g, b] = context.getImageData(column, 0, 1, 1).data;
+      return (
+        "#" + [r, g, b].map((v) => v.toString(16).padStart(2, "0")).join("")
+      );
+    }, x);
+    await expect(loupeHex(page), `at ${Math.round(x)}px`).toHaveText(expected);
+  }
+});
+
+test("the color-vision simulation reaches the magnifier, not its hex", async ({
+  page,
+}) => {
+  await open(page, "halves.svg", HALVES);
+  await layer(page).hover({ position: { x: 120, y: 160 } });
+  await expect(page.locator(".loupe canvas")).toHaveCSS("filter", "none");
+  await page.getByRole("tab", { name: "Contrast check" }).click();
+  await page.getByRole("radio", { name: "Protanopia" }).check();
+  await layer(page).hover({ position: { x: 120, y: 160 } });
+  await expect(page.locator(".loupe canvas")).toHaveCSS(
+    "filter",
+    'url("#cvd-protanopia")',
+  );
+  await expect(loupeHex(page)).toHaveText("#c8321e");
+});
+
+test.describe("phone", () => {
+  test.use({ hasTouch: true, viewport: { width: 390, height: 844 } });
+
+  test("the loupe and its hex stay whole inside the short photo frame", async ({
+    page,
+  }) => {
+    await open(page, "gradient.svg", GRADIENT);
+    await layer(page).scrollIntoViewIfNeeded();
+    const frame = (await layer(page).boundingBox())!;
+    const check = async (label: string, point?: { x: number; y: number }) => {
+      await expect(loupeHex(page), label).toBeVisible();
+      const loupe = (await page.locator(".loupe").boundingBox())!;
+      const hex = (await loupeHex(page).boundingBox())!;
+      expect(inside(loupe, frame), `${label}: loupe in frame`).toBe(true);
+      expect(inside(hex, frame), `${label}: hex in frame`).toBe(true);
+      if (point)
+        expect(
+          point.x > loupe.x - 4 &&
+            point.x < loupe.x + loupe.width + 4 &&
+            point.y > loupe.y - 4 &&
+            point.y < loupe.y + loupe.height + 4,
+          `${label}: loupe is off the picked point`,
+        ).toBe(false);
+    };
+    for (const y of [60, 90, 120, 150, 200]) {
+      await layer(page).hover({ position: { x: 180, y } });
+      await check(`hover at ${y}`, { x: frame.x + 180, y: frame.y + y });
+    }
+    await layer(page).focus();
+    await check("keyboard focus");
+  });
+});

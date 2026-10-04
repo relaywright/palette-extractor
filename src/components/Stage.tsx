@@ -145,8 +145,8 @@ export default function Stage({
     const media = matchMedia("(prefers-reduced-motion: reduce)");
     let reduced = media.matches;
     const quality = createQualityMonitor();
-    // Which swatch the pointer and the keyboard are each on, the one shown
-    // (the pointer's first), and how far its groups stand out in the cloud
+    // Which swatch the pointer, a finger and the keyboard are each on, the
+    // one shown (the pointer's first), and how far its groups stand out in the cloud
     // (eased, 0 to 1). The groups lit stay lit while the focus fades, so
     // leaving a swatch eases out instead of snapping.
     const groupSwatch = swatchForGroup(
@@ -155,6 +155,7 @@ export default function Stage({
     );
     const lit = new Float32Array(32);
     let hovered = -1,
+      tapped = -1,
       keyed = -1,
       focused = -1,
       focus = 0;
@@ -425,7 +426,7 @@ export default function Stage({
         : -1;
     const show = () => {
       if (!current()) return;
-      const index = hovered >= 0 ? hovered : keyed;
+      const index = hovered >= 0 ? hovered : tapped >= 0 ? tapped : keyed;
       const changed = index !== focused;
       if (changed) {
         focused = index;
@@ -453,7 +454,13 @@ export default function Stage({
       show();
     };
     const hover = (event: PointerEvent) => {
-      hovered = swatchAt(event.target);
+      // A finger's pick is kept apart from the pointer's hover: it outlasts
+      // the touch, until a key or another tap takes over.
+      if (event.pointerType === "touch") tapped = swatchAt(event.target);
+      else {
+        hovered = swatchAt(event.target);
+        tapped = -1;
+      }
       show();
     };
     // A finger leaves a swatch the moment a tap ends, so a tapped swatch
@@ -461,6 +468,7 @@ export default function Stage({
     const tapAway = (event: PointerEvent) => {
       if (event.pointerType !== "touch" || swatchAt(event.target) >= 0) return;
       hovered = -1;
+      tapped = -1;
       show();
     };
     const out = (event: PointerEvent) => {
@@ -468,8 +476,13 @@ export default function Stage({
       hovered = -1;
       show();
     };
+    // The keyboard taking over from a tap ends the tap's highlight.
+    const keyTo = (next: number) => {
+      keyed = next;
+      if (next >= 0) tapped = -1;
+    };
     const focusIn = (event: FocusEvent) => {
-      keyed = keyedAt(event.target);
+      keyTo(keyedAt(event.target));
       show();
     };
     const focusOut = (event: FocusEvent) => {
@@ -482,7 +495,7 @@ export default function Stage({
     const keyUp = () => {
       const next = keyedAt(document.activeElement);
       if (next === keyed) return;
-      keyed = next;
+      keyTo(next);
       show();
     };
     const showPhotoOnly = () => {
