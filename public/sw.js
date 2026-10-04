@@ -60,6 +60,9 @@ function checkPageFiles(page, html) {
 }
 
 async function precache() {
+  // Only a cache this install creates is its own to remove: an existing one
+  // with the same name is still what the active worker serves.
+  const created = !(await caches.has(SHELL));
   const cache = await caches.open(SHELL);
   try {
     await Promise.all([
@@ -78,7 +81,7 @@ async function precache() {
     ]);
   } catch (error) {
     // Never leave a half-saved revision behind.
-    await caches.delete(SHELL);
+    if (created) await caches.delete(SHELL);
     throw error;
   }
 }

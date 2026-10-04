@@ -1,6 +1,7 @@
 // Turns public/sw.js into the worker a build ships. Every build writes a
-// different worker (a revision hashed from the files it lists), so browsers
-// install it on each deploy and it saves exactly the files that deploy uses.
+// different worker (a revision hashed from the files it lists and from its
+// own code), so browsers install it on each deploy and it saves exactly the
+// files that deploy uses.
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join, posix } from "node:path";
@@ -43,8 +44,10 @@ export function listFiles(outDir) {
   return [...inFolders, ...atRoot.map((name) => `/${name}`)].sort();
 }
 
-function hashOf(outDir, pages, files) {
-  const hash = createHash("sha256");
+function hashOf(outDir, pages, files, template) {
+  // The worker's own code counts: an update to it alone still needs a cache
+  // of its own, not the one the running worker uses.
+  const hash = createHash("sha256").update(template).update("\0");
   const sources = [
     ...pages.map((page) => [page, PAGE_FILES[page]]),
     ...files.map((url) => [url, url.slice(1)]),
@@ -61,7 +64,7 @@ function hashOf(outDir, pages, files) {
 export function buildServiceWorker(outDir, template) {
   const pages = Object.keys(PAGE_FILES);
   const files = listFiles(outDir);
-  const revision = hashOf(outDir, pages, files);
+  const revision = hashOf(outDir, pages, files, template);
   const values = {
     revision: `const REVISION = ${JSON.stringify(revision)};`,
     pages: `const PAGES = ${JSON.stringify(pages)};`,
