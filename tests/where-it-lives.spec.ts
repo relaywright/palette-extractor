@@ -92,6 +92,26 @@ test("the lit pixels match the swatch's share of the samples", async ({
   }
 });
 
+test("the caption names a swatch as the palette shows it after an edit", async ({
+  page,
+}) => {
+  await open(page);
+  const name = (index: number) =>
+    page.locator(".swatch").nth(index).locator(".swatch-info span").first();
+  const original = await name(2).innerText();
+  await page.locator(".swatch-select").nth(2).focus();
+  for (let i = 0; i < 12 && (await name(2).innerText()) === original; i++) {
+    await page.keyboard.press("Shift+ArrowRight");
+    await page.waitForTimeout(60);
+  }
+  const edited = await name(2).innerText();
+  expect(edited).not.toBe(original);
+  await page.locator(".swatch").nth(2).hover();
+  await expect(page.locator(".focus-note")).toHaveText(
+    `Sampled pixels near ${edited}`,
+  );
+});
+
 // Four flat quarters, so which pixels belong to each swatch is known without
 // asking the app: a pixel belongs to the swatch whose color it is.
 const QUARTER_OF: Record<string, [number, number]> = {

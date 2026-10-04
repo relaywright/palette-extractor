@@ -4,7 +4,6 @@
   inset: 0;
   width: 100%;
   height: 100%;
-  object-fit: cover;
   pointer-events: none;
   transition: opacity 0.16s ease-out;
 }
@@ -47,6 +46,7 @@
 .loupe {
   position: absolute;
   width: 88px;
+  height: 111px;
   pointer-events: none;
   border-radius: 10px;
   overflow: hidden;
@@ -74,6 +74,7 @@
 .loupe-hex {
   display: block;
   padding: 3px 0 4px;
+  line-height: 16px;
   text-align: center;
   color: #f4f4f1;
   font-size: 11px;
@@ -118,6 +119,13 @@
 .swatch[data-picked] .swatch-color {
   outline: 2px solid #f4f4f1;
   outline-offset: 3px;
+}
+
+/* The active color-vision simulation reaches the magnifier and the comparison
+   chips like the photo and swatches they stand in for. Their hex values stay
+   the real ones. */
+[data-cvd] :is(.loupe canvas, .space-compare-rows td i) {
+  filter: var(--cvd-filter);
 }
 
 @media (prefers-reduced-motion: reduce) {

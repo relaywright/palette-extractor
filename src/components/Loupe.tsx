@@ -14,27 +14,39 @@ import type { StageSamples } from "../lib/extraction";
 import type { PinOutcome } from "../hooks/usePalette";
 import { paletteColorNames } from "../lib/names";
 import {
+  clampPixel,
   coverFit,
+  loupePlacement,
   moveCursor,
   ownerGrid,
   pixelAt,
   pointOf,
   swatchOwning,
+  visiblePixels,
 } from "../lib/pick";
+import { buildModel, recolorPixels, type RecolorModel } from "../recolor/math";
 import { swatchForGroup } from "../lib/stageGroups";
+import type { Fit } from "./photoFit";
 import "./touch.css";
 
 /** Working pixels shown across the magnifier. */
 const SPAN = 11;
 const SIZE = 88;
+/** The magnifier with its hex row, borders included (see `.loupe`). */
+const LOUPE = { width: SIZE, height: 111 };
 const NOTE_MS = 3200;
 
+/**
+ * A working pixel. A keyboard pick's place on screen is worked out from the
+ * layout, so it follows a resize; a pointer pick sits at the pointer
+ * (`near`), which can be well away from the pixel's center when one working
+ * pixel spans many screen pixels.
+ */
 interface Pick {
   x: number;
   y: number;
-  /** Where the pixel sits in the picking layer, in CSS pixels. */
-  at: { x: number; y: number };
   keyboard: boolean;
+  near?: { x: number; y: number };
 }
 
 const MESSAGES: Record<PinOutcome, (hex: string) => string> = {
@@ -47,23 +59,32 @@ const MESSAGES: Record<PinOutcome, (hex: string) => string> = {
 /**
  * Hover (or arrow keys, or a tap in pick mode) over the photo to read one
  * pixel's color in a magnifier and see which swatch owns it; click or press
- * Enter to pin that exact color into the palette.
+ * Enter to pin that exact color into the palette. The magnifier and the pin
+ * take the color the viewer sees: the photo through any recolor edits
+ * (`colors` against the extracted `swatches`). Which swatch owns a pixel
+ * comes from the extraction, so an edit never moves a pixel to another one.
  */
 export default function Loupe({
   samples,
   swatches,
+  colors,
   hero,
+  fit,
   onPin,
 }: {
   samples: StageSamples;
   swatches: RGB[];
+  colors: RGB[];
   hero: RefObject<HTMLImageElement>;
+  fit: Fit;
   onPin: (color: RGB) => PinOutcome;
 }) {
   const layer = useRef<HTMLDivElement>(null);
   const zoom = useRef<HTMLCanvasElement>(null);
-  const work = useRef<{
+  const base = useRef<{ samples: StageSamples; data: ImageData } | null>(null);
+  const seen = useRef<{
     samples: StageSamples;
+    model: RecolorModel | null;
     canvas: HTMLCanvasElement;
     data: ImageData;
   } | null>(null);
@@ -78,12 +99,26 @@ export default function Loupe({
     () => ownerGrid(samples, swatchForGroup(samples.groupColors, swatches)),
     [samples, swatches],
   );
-  const names = useMemo(() => paletteColorNames(swatches), [swatches]);
+  const names = useMemo(() => paletteColorNames(colors), [colors]);
+  const model = useMemo(() => buildModel(swatches, colors), [swatches, colors]);
+  const cover = useMemo(
+    () =>
+      fit.box.width && fit.box.height
+        ? coverFit(
+            fit.box,
+            width,
+            height,
+            fit.natural.width,
+            fit.natural.height,
+          )
+        : null,
+    [fit, width, height],
+  );
 
   // The photo at the size the quantizer saw, so a pick is the color it
   // counted. Null when the browser will not let the page read the photo.
-  const pixels = useCallback(() => {
-    if (work.current?.samples === samples) return work.current;
+  const original = useCallback((): ImageData | null => {
+    if (base.current?.samples === samples) return base.current.data;
     const image = hero.current;
     if (!image?.complete || !image.naturalWidth) return null;
     const canvas = document.createElement("canvas");
@@ -93,34 +128,55 @@ export default function Loupe({
     if (!context) return null;
     try {
       context.drawImage(image, 0, 0, width, height);
-      work.current = {
+      base.current = {
         samples,
-        canvas,
         data: context.getImageData(0, 0, width, height),
       };
     } catch {
       return null;
     }
-    return work.current;
+    return base.current.data;
   }, [hero, samples, width, height]);
 
-  const colorAt = useCallback(
-    (x: number, y: number): RGB | null => {
-      const source = pixels();
-      if (!source) return null;
+  // The same pixels through the recolor, as the page shows them.
+  const view = useCallback(() => {
+    if (seen.current?.samples === samples && seen.current.model === model)
+      return seen.current;
+    const data = original();
+    if (!data) return null;
+    const recolored = model
+      ? new ImageData(recolorPixels(data.data, model), width, height)
+      : data;
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    canvas.getContext("2d")?.putImageData(recolored, 0, 0);
+    seen.current = { samples, model, canvas, data: recolored };
+    return seen.current;
+  }, [original, samples, model, width, height]);
+
+  const readAt = useCallback(
+    (x: number, y: number): { seen: RGB; original: RGB } | null => {
+      const photo = original(),
+        shown = view();
+      if (!photo || !shown) return null;
       const i = (y * width + x) * 4;
-      const { data } = source.data;
-      return data[i + 3] < 125
-        ? null
-        : { r: data[i], g: data[i + 1], b: data[i + 2] };
+      if (photo.data[i + 3] < 125) return null;
+      const rgb = (data: Uint8ClampedArray): RGB => ({
+        r: data[i],
+        g: data[i + 1],
+        b: data[i + 2],
+      });
+      return { seen: rgb(shown.data.data), original: rgb(photo.data) };
     },
-    [pixels, width],
+    [original, view, width],
   );
 
-  const color = pick ? colorAt(pick.x, pick.y) : null;
+  const read = pick ? readAt(pick.x, pick.y) : null;
+  const color = read?.seen ?? null;
   const owner =
-    pick && color
-      ? swatchOwning(grid, pick.y * width + pick.x, color, swatches)
+    pick && read
+      ? swatchOwning(grid, pick.y * width + pick.x, read.original, swatches)
       : -1;
   const hex = color ? rgbToHex(color) : "";
 
@@ -142,14 +198,14 @@ export default function Loupe({
 
   useEffect(() => {
     const element = zoom.current,
-      source = pixels();
+      shown = view();
     const context = element?.getContext("2d");
-    if (!element || !context || !source || !pick) return;
+    if (!element || !context || !shown || !pick) return;
     context.imageSmoothingEnabled = false;
     context.clearRect(0, 0, SIZE, SIZE);
     const half = (SPAN - 1) / 2;
     context.drawImage(
-      source.canvas,
+      shown.canvas,
       pick.x - half,
       pick.y - half,
       SPAN,
@@ -159,33 +215,39 @@ export default function Loupe({
       SIZE,
       SIZE,
     );
-  }, [pick, pixels]);
+  }, [pick, view]);
 
   useEffect(() => () => window.clearTimeout(noteTimer.current), []);
 
-  const place = (clientX: number, clientY: number, keyboard = false) => {
+  // The layer's box as it is now, read when a pointer or key needs it.
+  const frame = () => {
     const box = layer.current?.getBoundingClientRect();
-    if (!box) return;
-    const cover = coverFit(box, width, height);
-    const found = pixelAt(
-      { x: clientX - box.left, y: clientY - box.top },
-      cover,
-      width,
-      height,
-    );
-    setPick(
-      found && {
-        ...found,
-        at: pointOf(found, cover),
-        keyboard,
-      },
-    );
+    if (!box?.width || !box.height) return null;
+    return {
+      box,
+      cover: coverFit(
+        box,
+        width,
+        height,
+        fit.natural.width,
+        fit.natural.height,
+      ),
+    };
   };
-  const placePixel = (x: number, y: number, keyboard: boolean) => {
-    const box = layer.current?.getBoundingClientRect();
-    if (!box) return;
-    const cover = coverFit(box, width, height);
-    setPick({ x, y, at: pointOf({ x, y }, cover), keyboard });
+  const pixelUnder = (clientX: number, clientY: number) => {
+    const now = frame();
+    if (!now) return null;
+    const near = { x: clientX - now.box.left, y: clientY - now.box.top };
+    const pixel = pixelAt(near, now.cover, width, height);
+    return pixel && { ...pixel, near };
+  };
+  // Keyboard picks stay on the part of the photo that shows.
+  const placePixel = (pixel: { x: number; y: number }) => {
+    const now = frame();
+    const at = now
+      ? clampPixel(pixel, visiblePixels(now.box, now.cover, width, height))
+      : pixel;
+    setPick({ ...at, keyboard: true });
   };
 
   const say = (message: string) => {
@@ -194,7 +256,7 @@ export default function Loupe({
     noteTimer.current = window.setTimeout(() => setNote(""), NOTE_MS);
   };
   const pin = (x: number, y: number) => {
-    const picked = colorAt(x, y);
+    const picked = readAt(x, y)?.seen;
     if (!picked) return;
     say(MESSAGES[onPin(picked)](rgbToHex(picked)));
   };
@@ -203,20 +265,26 @@ export default function Loupe({
   // photo behave as usual otherwise.
   const live = (event: PointerEvent) =>
     event.pointerType !== "touch" || picking;
-  const move = (event: PointerEvent) => {
-    if (event.type === "pointerdown") pressed.current = true;
-    if (live(event)) place(event.clientX, event.clientY);
+  const track = (event: PointerEvent) => {
+    if (!live(event)) return;
+    const found = pixelUnder(event.clientX, event.clientY);
+    setPick(found && { ...found, keyboard: false });
+  };
+  // A release only pins when its press began on the photo: a drag that ends
+  // over it is not a click.
+  const down = useRef<number | null>(null);
+  const start = (event: PointerEvent) => {
+    pressed.current = true;
+    down.current =
+      event.isPrimary && event.button === 0 ? event.pointerId : null;
+    track(event);
   };
   const lift = (event: PointerEvent) => {
-    if (!event.isPrimary || event.button !== 0 || !live(event)) return;
-    const box = layer.current?.getBoundingClientRect();
-    if (!box) return;
-    const found = pixelAt(
-      { x: event.clientX - box.left, y: event.clientY - box.top },
-      coverFit(box, width, height),
-      width,
-      height,
-    );
+    const began = down.current === event.pointerId;
+    down.current = null;
+    if (!began || !event.isPrimary || event.button !== 0 || !live(event))
+      return;
+    const found = pixelUnder(event.clientX, event.clientY);
     if (found) pin(found.x, found.y);
     if (event.pointerType === "touch") setPick(null);
   };
@@ -228,7 +296,8 @@ export default function Loupe({
   const pressed = useRef(false);
   const focus = () => {
     if (pressed.current) return;
-    if (!pick) placePixel(Math.floor(width / 2), Math.floor(height / 2), true);
+    if (!pick)
+      placePixel({ x: Math.floor(width / 2), y: Math.floor(height / 2) });
   };
   const blur = () => {
     pressed.current = false;
@@ -247,33 +316,35 @@ export default function Loupe({
         ?.focus();
       return;
     }
-    const from = pick ?? {
+    const now = frame();
+    const bounds = now
+      ? visiblePixels(now.box, now.cover, width, height)
+      : undefined;
+    const current = pick ?? {
       x: Math.floor(width / 2),
       y: Math.floor(height / 2),
     };
+    const from = bounds ? clampPixel(current, bounds) : current;
     if (event.key === "Enter") {
       event.preventDefault();
       pin(from.x, from.y);
       return;
     }
-    const next = moveCursor(from, event.key, event.shiftKey, width, height);
+    const next = moveCursor(
+      from,
+      event.key,
+      event.shiftKey,
+      width,
+      height,
+      bounds,
+    );
     if (!next) return;
     event.preventDefault();
-    placePixel(next.x, next.y, true);
+    placePixel(next);
   };
 
-  const box = layer.current?.getBoundingClientRect();
-  const loupeLeft = pick
-    ? Math.min(
-        Math.max(pick.at.x - SIZE / 2, 4),
-        (box?.width ?? 400) - SIZE - 12,
-      )
-    : 0;
-  const loupeTop = pick
-    ? pick.at.y > SIZE + 56
-      ? pick.at.y - SIZE - 44
-      : pick.at.y + 22
-    : 0;
+  const at = pick && (pick.near ?? (cover ? pointOf(pick, cover) : null));
+  const spot = at ? loupePlacement(at, fit.box, LOUPE) : null;
   const near = owner >= 0 ? `, near ${names[owner]}` : "";
 
   return (
@@ -288,23 +359,21 @@ export default function Loupe({
         role="group"
         aria-label="Photo color picker"
         aria-describedby={hint}
-        onPointerMove={move}
-        onPointerDown={move}
+        onPointerMove={track}
+        onPointerDown={start}
         onPointerUp={lift}
+        onPointerCancel={() => (down.current = null)}
         onPointerLeave={leave}
         onFocus={focus}
         onBlur={blur}
         onKeyDown={press}
       >
-        {pick && color && (
+        {pick && color && at && spot && (
           <>
             {pick.keyboard && (
-              <i
-                className="pick-ring"
-                style={{ left: pick.at.x, top: pick.at.y }}
-              />
+              <i className="pick-ring" style={{ left: at.x, top: at.y }} />
             )}
-            <div className="loupe" style={{ left: loupeLeft, top: loupeTop }}>
+            <div className="loupe" style={spot}>
               <canvas
                 ref={zoom}
                 width={SIZE}

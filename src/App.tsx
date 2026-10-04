@@ -695,9 +695,16 @@ export default function App() {
                           <PhotoTools
                             samples={stageResult.samples}
                             swatches={stageResult.swatches}
+                            colors={colors}
                             focus={focus}
                             hero={hero}
-                            onPin={palette.pinColor}
+                            onPin={(color) => {
+                              const outcome = palette.pinColor(color);
+                              // Pinning re-extracts around the new color; the
+                              // swatches that survive keep their edits.
+                              if (outcome === "pinned") edits.carryThroughPin();
+                              return outcome;
+                            }}
                           />
                         </Suspense>
                       )}
