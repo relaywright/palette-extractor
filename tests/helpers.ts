@@ -93,3 +93,9 @@ export function imageSize(bytes: Buffer): { width: number; height: number } {
   }
   throw new Error("No JPEG frame header");
 }
+
+/**
+ * For tests that measure time on the page. CI runs them on their own after
+ * the rest of the suite, so a busy runner does not decide whether they pass.
+ */
+export const TIMING = { tag: "@timing" };

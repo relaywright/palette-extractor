@@ -155,8 +155,13 @@
   border-collapse: separate;
   border-spacing: 3px;
 }
-.space-compare-rows th {
+/* Wide enough for "Perceptual" whole, even on a phone. A fixed table takes
+   its column widths from the columns, not from the cells. */
+.space-compare-label {
   width: 76px;
+}
+.space-compare-rows th {
+  white-space: nowrap;
   padding-right: 6px;
   text-align: left;
   font-size: 12px;
@@ -178,9 +183,4 @@
 }
 .space-compare-rows td[data-state="empty"] i {
   border: 1px dashed #ffffff40;
-}
-@media (max-width: 580px) {
-  .space-compare-rows th {
-    width: 62px;
-  }
 }

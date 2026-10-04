@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { stageDone } from "./helpers";
+import { TIMING, stageDone } from "./helpers";
 import { accessible } from "./stage-checks";
 
 const turn = (page: Page) =>
@@ -163,21 +163,24 @@ test.describe("on a touch screen", () => {
     return send;
   }
 
-  test("a swipe that is mostly up and down leaves the cloud where it is", async ({
-    page,
-  }) => {
-    const { x, y } = await center(page);
-    const send = await touch(page);
-    await send("touchStart", x, y);
-    const start = await degrees(page);
-    // Drifting 30 px sideways while moving 84 px down is still a scroll.
-    // Turned by that drift, the cloud would move about 8 degrees; if the
-    // browser scrolls instead, the slow turn picks up again from rest.
-    for (let k = 1; k <= 6; k++) await send("touchMove", x + k * 5, y + k * 14);
-    await page.waitForTimeout(50);
-    expect(Math.abs(moved(start, await degrees(page)))).toBeLessThan(3);
-    await send("touchEnd");
-  });
+  test(
+    "a swipe that is mostly up and down leaves the cloud where it is",
+    TIMING,
+    async ({ page }) => {
+      const { x, y } = await center(page);
+      const send = await touch(page);
+      await send("touchStart", x, y);
+      const start = await degrees(page);
+      // Drifting 30 px sideways while moving 84 px down is still a scroll.
+      // Turned by that drift, the cloud would move about 8 degrees; if the
+      // browser scrolls instead, the slow turn picks up again from rest.
+      for (let k = 1; k <= 6; k++)
+        await send("touchMove", x + k * 5, y + k * 14);
+      await page.waitForTimeout(50);
+      expect(Math.abs(moved(start, await degrees(page)))).toBeLessThan(3);
+      await send("touchEnd");
+    },
+  );
 
   test("a gesture the browser takes over leaves no fling", async ({ page }) => {
     const { x, y, box } = await center(page);

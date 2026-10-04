@@ -32,10 +32,26 @@ test("the Shades view draws a scale and a lightness curve per color", async ({
     ]);
     await expect(row.locator("svg.shade-curve")).toHaveAttribute("role", "img");
     await expect(row.locator("svg.shade-curve circle")).toHaveCount(11);
-    await expect(row.locator(".shade-chip", { hasText: "yours" })).toHaveCount(
-      1,
-    );
+    const anchor = row.locator(".shade-chip.is-anchor");
+    await expect(anchor).toHaveCount(1);
+    await expect(anchor).toHaveAttribute("aria-label", /, your color$/);
   }
+});
+
+test("a wide panel lays all eleven stops on one row", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/#p=b4643c.788c3c.141e78");
+  await ready(page);
+  await openShades(page);
+  const tops = await page
+    .locator(".shade-row")
+    .first()
+    .locator(".shade-chip")
+    .evaluateAll((chips) =>
+      chips.map((chip) => Math.round(chip.getBoundingClientRect().top)),
+    );
+  expect(tops).toHaveLength(11);
+  expect(new Set(tops).size).toBe(1);
 });
 
 test("a shade copies with confirmation on that chip, in hex and Display P3", async ({
