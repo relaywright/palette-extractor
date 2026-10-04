@@ -1040,7 +1040,9 @@ test.describe("when the worker is turned off with a new deploy", () => {
     // A fresh visit, as any later one is.
     await page.goto("about:blank");
     await page.goto(origin);
-    // The page and the retiring worker may each reload it once.
+    // The page and the retiring worker may each reload it once. Nothing saved
+    // is checked with caches.match, which, unlike opening a cache, cannot
+    // create one.
     await expect
       .poll(
         () =>
@@ -1048,14 +1050,13 @@ test.describe("when the worker is turned off with a new deploy", () => {
             .evaluate(async () => ({
               registrations: (await navigator.serviceWorker.getRegistrations())
                 .length,
-              caches: (await caches.keys()).filter((name) =>
-                /^palette-(shell-|shared-image$)/.test(name),
-              ),
+              savedPage: !!(await caches.match("/")),
+              savedRevision: !!(await caches.match("/installed-at")),
             }))
             .catch(() => null),
         { timeout: 15000 },
       )
-      .toEqual({ registrations: 0, caches: [] });
+      .toEqual({ registrations: 0, savedPage: false, savedRevision: false });
     // Past the delay the normal build registers after, and any reload.
     await page.waitForTimeout(5000);
     await page.goto(origin);
@@ -1067,6 +1068,19 @@ test.describe("when the worker is turned off with a new deploy", () => {
         controlled: !!navigator.serviceWorker.controller,
       })),
     ).toEqual({ registrations: 0, controlled: false });
+    // Chrome writes compiled code for a script back into the cache it was
+    // served from, opening that cache by name, so a script the old worker
+    // served just before the deletion can leave an empty cache behind. This
+    // visit, with no worker in the way, removes whatever is left.
+    await expect
+      .poll(() =>
+        page.evaluate(async () =>
+          (await caches.keys()).filter((name) =>
+            /^palette-(shell-|shared-image$)/.test(name),
+          ),
+        ),
+      )
+      .toEqual([]);
     await expect(page.locator(".swatch")).toHaveCount(6);
   });
 });

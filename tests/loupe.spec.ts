@@ -170,7 +170,9 @@ for (const size of WIDTHS)
     await noAxeViolations(page);
     await layer(page).click({ position: { x: 200, y: 120 } });
     await expect(note(page)).toContainText("Pinned");
-    await noAxeViolations(page);
+    // A pin rebuilds the palette and the swatches melt to their new colors, so
+    // a scan mid-melt reads every label against a color in between.
+    await expect(() => noAxeViolations(page)).toPass({ timeout: 5000 });
   });
 
 /** Presses an edit key on a swatch until its hex changes, `times` over. */

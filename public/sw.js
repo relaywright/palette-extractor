@@ -152,7 +152,8 @@ async function openPage(request) {
     network = undefined;
   }
   if (network && network.status < 500) return network;
-  const saved = await (await caches.open(SHELL)).match(key);
+  // caches.match, unlike caches.open, never creates the cache it names.
+  const saved = await caches.match(key, { cacheName: SHELL });
   if (saved) return saved;
   if (network) return network;
   // A slow network with nothing saved is worth waiting for.
@@ -170,16 +171,17 @@ async function openPage(request) {
 }
 
 async function savedFile(request) {
-  const cache = await caches.open(SHELL);
   // Module scripts and stylesheets are requested with CORS, so they send an
   // Origin header the saved copies were fetched without. A server that answers
   // "Vary: Origin" would make every one of them a miss; these files are named
   // by their content or never change, so Vary has nothing to say about them.
   const options = { ignoreVary: true };
   // A tab opened before the latest update asks for that deploy's files, which
-  // the previous revision still holds.
+  // the previous revision still holds. Reads use caches.match rather than
+  // caches.open, which would create the cache again after the off switch
+  // deleted it.
   return (
-    (await cache.match(request, options)) ??
+    (await caches.match(request, { ...options, cacheName: SHELL })) ??
     (await caches.match(request, options)) ??
     fetch(request)
   );
