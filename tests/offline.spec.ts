@@ -379,6 +379,10 @@ test.describe("across two different deploys", () => {
   let current = "one";
   // Paths the site stops serving, to model a deploy that is only half there.
   let missing = new Set<string>();
+  // A different script for /sw.js, to model a worker-only update.
+  let workerSource: string | null = null;
+  // Paths served without any HTTP caching, so only the worker can have them.
+  let uncached = false;
 
   test.beforeAll(async () => {
     dirs.one = deploy("one");
@@ -400,9 +404,18 @@ test.describe("across two different deploys", () => {
         "Content-Type": types[extname(file)] ?? "application/octet-stream",
         // A host that lets browsers keep pages, to catch a worker that trusts
         // the HTTP cache. Only the worker script is always revalidated.
-        "Cache-Control": path === "/sw.js" ? "no-cache" : "max-age=3600",
+        "Cache-Control":
+          path === "/sw.js"
+            ? "no-cache"
+            : uncached
+              ? "no-store"
+              : "max-age=3600",
       });
-      res.end(readFileSync(file));
+      res.end(
+        path === "/sw.js" && workerSource !== null
+          ? workerSource
+          : readFileSync(file),
+      );
     });
     await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
     const address = server.address();
@@ -416,6 +429,8 @@ test.describe("across two different deploys", () => {
   test.beforeEach(() => {
     current = "one";
     missing = new Set();
+    workerSource = null;
+    uncached = false;
   });
 
   const entry = (page: Page) =>
@@ -428,8 +443,8 @@ test.describe("across two different deploys", () => {
     await ready(page);
     await worker(page);
   };
-  // Resolves once the worker for a deploy has saved `file` and the older
-  // revisions are gone.
+  // Resolves once the worker for a deploy has saved `file` and nothing older
+  // than the previous deploy is left.
   const saved = (page: Page, file: string) =>
     expect
       .poll(
@@ -438,7 +453,7 @@ test.describe("across two different deploys", () => {
             async (url) =>
               (await caches.keys()).filter((n) =>
                 n.startsWith("palette-shell-"),
-              ).length === 1 && !!(await caches.match(url)),
+              ).length <= 2 && !!(await caches.match(url)),
             file,
           ),
         { timeout: 20000 },
@@ -495,6 +510,82 @@ test.describe("across two different deploys", () => {
       { timeout: 20000 },
     );
     expect(await entry(page)).toContain("/main-one.js");
+    await exportPanel(page);
+    await expect(page.locator("html")).toHaveAttribute("data-build", "one");
+  });
+
+  test("a tab left on the old deploy still opens a panel it never loaded, offline", async ({
+    page,
+    context,
+  }) => {
+    // The browser's own cache must not be able to supply the old panel.
+    uncached = true;
+    await open(page);
+    expect(await entry(page)).toContain("/main-one.js");
+    await page.evaluate(() => {
+      const w = window as unknown as { takenOver: boolean };
+      w.takenOver = false;
+      navigator.serviceWorker.addEventListener("controllerchange", () => {
+        w.takenOver = true;
+      });
+    });
+    // A revision from before the previous deploy, which nothing needs now.
+    await page.evaluate(async () => {
+      const cache = await caches.open("palette-shell-ancient");
+      await cache.put("/installed-at", new Response("1"));
+    });
+    current = "two";
+    // The new deploy arrives through a second tab; the first stays as it was.
+    const other = await context.newPage();
+    await other.goto(origin);
+    await ready(other);
+    await saved(other, "/assets/ExportPanel-two.js");
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () => (window as unknown as { takenOver: boolean }).takenOver,
+        ),
+      )
+      .toBe(true);
+    const kept = await page.evaluate(async () =>
+      (await caches.keys()).filter((n) => n.startsWith("palette-shell-")),
+    );
+    expect(kept).toHaveLength(2);
+    expect(kept).not.toContain("palette-shell-ancient");
+    await context.setOffline(true);
+    await exportPanel(page);
+    await expect(page.locator("html")).toHaveAttribute("data-build", "one");
+  });
+
+  test("a worker-only update that fails to install leaves the saved version working", async ({
+    page,
+    context,
+  }) => {
+    await open(page);
+    const first = await page.evaluate(async () =>
+      (await caches.keys()).filter((n) => n.startsWith("palette-shell-")),
+    );
+    // Same files, so the same cache name; only the worker's own bytes differ.
+    workerSource =
+      readFileSync(join(dirs.one, "sw.js"), "utf8") + "\n// update\n";
+    missing = new Set(["/assets/ExportPanel-one.js"]);
+    await page.evaluate(async () => {
+      await (await navigator.serviceWorker.getRegistration())!.update();
+    });
+    // Give the new worker time to try and fail.
+    await page.waitForTimeout(3000);
+    expect(
+      await page.evaluate(async () =>
+        (await caches.keys()).filter((n) => n.startsWith("palette-shell-")),
+      ),
+    ).toEqual(first);
+    await context.setOffline(true);
+    await page.goto(origin);
+    await expect(page.locator("#workspace")).toHaveAttribute(
+      "aria-busy",
+      "false",
+      { timeout: 20000 },
+    );
     await exportPanel(page);
     await expect(page.locator("html")).toHaveAttribute("data-build", "one");
   });

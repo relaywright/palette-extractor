@@ -150,8 +150,17 @@ for (const width of [390, 768, 1440]) {
     await openContrast(page);
     await page.getByRole("radio", { name: "Deuteranopia" }).check();
     await expect(page.locator(".cvd-result li")).toHaveCount(1);
-    await expect(page.locator(".cvd-indicator")).toBeVisible();
+    // A phone's open tool sheet takes the badge's place, and the control that
+    // turns the simulation off is inside it.
+    const indicator = page.locator(".cvd-indicator");
+    if (width <= 580) await expect(indicator).toBeHidden();
+    else await expect(indicator).toBeVisible();
     expect(await axeViolations(page)).toEqual([]);
+    if (width <= 580) {
+      await page.keyboard.press("Escape");
+      await expect(indicator).toBeVisible();
+      expect(await axeViolations(page)).toEqual([]);
+    }
   });
 }
 
@@ -201,4 +210,45 @@ test("on a phone the simulation badge sits above the tab bar", async ({
     ];
     expect(a.y + a.height, `scrolled to ${top}`).toBeLessThanOrEqual(b.y);
   }
+});
+
+test("on a phone the simulation badge stays off the open tool sheet", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/#p=b4643c.788c3c.141e78");
+  await ready(page);
+  await page.getByRole("tab", { name: "Contrast check" }).click();
+  await page.getByRole("radio", { name: "Deuteranopia" }).check();
+  const sheet = page.locator(".sheet");
+  const indicator = page.locator(".cvd-indicator");
+  await expect(sheet).toHaveAttribute("data-open", "true");
+
+  // Down the sheet's lower area, whatever is under the finger is the sheet's.
+  const hits = await sheet.evaluate((el) => {
+    const box = el.getBoundingClientRect();
+    return [0.15, 0.35, 0.5, 0.65, 0.85].flatMap((x) =>
+      [8, 20, 34, 48, 64].map((up) => {
+        const hit = document.elementFromPoint(
+          box.left + box.width * x,
+          box.bottom - up,
+        );
+        return {
+          inSheet: !!hit && el.contains(hit),
+          badge: !!hit?.closest(".cvd-indicator"),
+        };
+      }),
+    );
+  });
+  expect(hits.filter((hit) => hit.badge)).toEqual([]);
+  expect(hits.filter((hit) => !hit.inSheet)).toEqual([]);
+
+  // Turning the simulation off is still in reach, inside the sheet.
+  await expect(page.getByRole("radio", { name: "Deuteranopia" })).toBeVisible();
+  await expect(indicator).toBeHidden();
+
+  await page.keyboard.press("Escape");
+  await expect(sheet).toHaveAttribute("data-open", "false");
+  await expect(indicator).toBeVisible();
 });

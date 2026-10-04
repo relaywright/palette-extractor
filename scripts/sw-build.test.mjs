@@ -93,6 +93,15 @@ describe("buildServiceWorker", () => {
     expect(new Set(changed).size).toBe(changed.length);
   });
 
+  it("gives a new revision when only the worker itself changes", () => {
+    // Same pages and files: a worker with new code must not share a cache
+    // name with the one it replaces.
+    const dir = makeDist(site);
+    const base = buildServiceWorker(dir, template).revision;
+    const edited = buildServiceWorker(dir, `${template}\n// changed`).revision;
+    expect(edited).not.toBe(base);
+  });
+
   it("refuses a template that lacks a line to fill in", () => {
     expect(() =>
       buildServiceWorker(

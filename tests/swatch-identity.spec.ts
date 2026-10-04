@@ -113,6 +113,42 @@ test("unlocking one of two identical swatches keeps the other locked", async ({
   expect(shown.filter((hex) => hex === "#ee5533")).toHaveLength(1);
 });
 
+for (const which of ["first", "second"] as const) {
+  test(`unlocking the ${which} of two identical swatches unpins that swatch, not the other`, async ({
+    page,
+  }) => {
+    await page.goto(REPEATED);
+    await ready(page);
+    await page.locator("input[type=file]").setInputFiles({
+      name: "four.svg",
+      mimeType: "image/svg+xml",
+      buffer: fourColors,
+    });
+    await ready(page);
+    await expect(page.locator(".swatch")).toHaveCount(4);
+    expect((await hexes(page)).slice(0, 2)).toEqual(["#ee5533", "#ee5533"]);
+    const ids = await page
+      .locator(".swatch")
+      .evaluateAll((els) =>
+        els.map((el) => el.getAttribute("data-swatch-id")!),
+      );
+    const [clicked, other] = which === "first" ? ids : [ids[1], ids[0]];
+    const pin = (id: string) =>
+      page.locator(`.swatch[data-swatch-id="${id}"] .lock-button`);
+
+    await pin(clicked).click();
+    await ready(page);
+    await expect(pin(clicked)).toHaveAttribute("aria-pressed", "false");
+    await expect(pin(other)).toHaveAttribute("aria-pressed", "true");
+    // The swatch that stayed is still the pinned red.
+    await expect(
+      page
+        .locator(`.swatch[data-swatch-id="${other}"] .swatch-info button`)
+        .first(),
+    ).toHaveAttribute("aria-label", "Copy #ee5533");
+  });
+}
+
 test("an accent assigned to a color stays on it when the palette is sorted", async ({
   page,
   context,

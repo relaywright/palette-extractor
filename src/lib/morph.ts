@@ -10,6 +10,8 @@ export interface DisplayedSwatch {
   rgb: RGB;
   target: RGB;
   locked: boolean;
+  /** The pin holding this swatch, if any. */
+  lockId?: string;
 }
 
 export interface MorphItem {
@@ -25,14 +27,17 @@ export interface MorphItem {
 
 /**
  * Pairs a new palette with the swatches on screen so each surviving swatch
- * keeps its ID. Locked colors claim the swatch already showing their hex,
- * then exact hex matches pair up (repeats in order of occurrence), then the
- * rest go to the nearest remaining swatch in OKLab, closest pair first. Only
- * target colors are compared, never a color caught mid-melt.
+ * keeps its ID. A pinned color claims the swatch its pin is on (a pin is
+ * named after the swatch it was made on, or carried by it since), so of two
+ * identical swatches the one that was pinned stays pinned. Other locked
+ * colors claim the swatch already showing their hex, then exact hex matches
+ * pair up (repeats in order of occurrence), then the rest go to the nearest
+ * remaining swatch in OKLab, closest pair first. Only target colors are
+ * compared, never a color caught mid-melt.
  */
 export function planMorph(
   prev: DisplayedSwatch[],
-  next: { rgb: RGB; locked: boolean }[],
+  next: { rgb: RGB; locked: boolean; lockId?: string }[],
   newId: () => string,
 ): { items: MorphItem[]; removed: string[] } {
   const targetHex = prev.map((swatch) => rgbToHex(swatch.target));
@@ -47,8 +52,16 @@ export function planMorph(
     for (const index of free)
       if (targetHex[index] === hex) return claim(slot, index);
   };
+  const claimPin = (slot: number, by: "lockId" | "id") => {
+    const pin = next[slot].lockId;
+    if (pin === undefined || match[slot] !== null) return;
+    for (const index of free)
+      if (prev[index][by] === pin) return claim(slot, index);
+  };
+  for (const by of ["lockId", "id"] as const)
+    next.forEach((_, slot) => claimPin(slot, by));
   next.forEach((color, slot) => {
-    if (color.locked) claimSameHex(slot);
+    if (color.locked && match[slot] === null) claimSameHex(slot);
   });
   next.forEach((_, slot) => {
     if (match[slot] === null) claimSameHex(slot);

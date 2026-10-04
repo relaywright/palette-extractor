@@ -8,16 +8,31 @@ import {
 } from "react";
 import { type RGB, type SortMode, rgbToHex, sortPalette } from "../lib/color";
 import { extractPaletteDetailed, type ExtractionDetail } from "../lib/extract";
-import { toggleLocked } from "../lib/locks";
+import { type Lock, locksFor, newPinId, toggleLocked } from "../lib/locks";
 import { SAME_COLOR_DISTANCE } from "../lib/compare";
 import { withoutBoxes } from "../lib/stageGroups";
 import { updatePaletteFavicon } from "../lib/favicon";
-import { oklabDistance, type ColorSpace } from "@relaywright/median-cut";
+import {
+  oklabDistance,
+  type ColorSpace,
+  type WeightedColor,
+} from "@relaywright/median-cut";
 import type { Source } from "./useImageSource";
 
 const HIGHLIGHT_DURATION_MS = 1500;
 export type PinOutcome = "pinned" | "already" | "full" | "busy";
 const MAX_COLORS = 10;
+
+/** A palette color; a pinned one names the pin that holds it. */
+export interface PaletteColor extends WeightedColor {
+  lockId?: string;
+}
+type PaletteDetail = Omit<ExtractionDetail, "colors"> & {
+  colors: PaletteColor[];
+};
+
+const pinned = (locks: Lock[]): PaletteColor[] =>
+  locks.map(({ id, color }) => ({ color, population: 0, lockId: id }));
 
 interface UsePaletteOptions {
   source: Source | null;
@@ -43,13 +58,21 @@ export function usePalette({
   setError,
   setNotice,
 }: UsePaletteOptions) {
-  const [detail, setDetail] = useState<ExtractionDetail>({
-    colors: initialColors?.map((color) => ({ color, population: 1 })) ?? [],
+  const [locks, setLocks] = useState<Lock[]>(() =>
+    locksFor(initialColors ?? []),
+  );
+  const [detail, setDetail] = useState<PaletteDetail>(() => ({
+    colors: locks.map(({ id, color }) => ({
+      color,
+      population: 1,
+      lockId: id,
+    })),
     pixels: [],
     steps: [],
     samples: null,
-  });
-  const [locked, setLocked] = useState<RGB[]>(initialColors ?? []);
+  }));
+  // Extraction and the stage read the pinned colors alone.
+  const locked = useMemo(() => locks.map((lock) => lock.color), [locks]);
   const [count, setCount] = useState(initialColors?.length ?? 6);
   const [sort, setSort] = useState<SortMode>("original");
   const [extracting, setExtracting] = useState(!initialColors);
@@ -93,10 +116,7 @@ export function usePalette({
       startTransition(() => {
         setDetail({
           ...next,
-          colors: [
-            ...locked.map((color) => ({ color, population: 0 })),
-            ...unlocked,
-          ],
+          colors: [...pinned(locks), ...unlocked],
           ...(remaining <= 0
             ? {
                 pixels: [],
@@ -151,7 +171,7 @@ export function usePalette({
       }
     });
     return () => controller.abort();
-  }, [source, count, locked, colorSpace, live]);
+  }, [source, count, locks, colorSpace, live]);
 
   useEffect(() => () => window.clearTimeout(highlightTimeout.current), []);
 
@@ -161,17 +181,18 @@ export function usePalette({
   );
   const colors = useMemo(() => sorted.map((e) => e.color), [sorted]);
   const total = sorted.reduce((sum, e) => sum + e.population, 0);
-  const lockedSet = new Set(locked.map(rgbToHex));
   const busy = extracting || urlBusy;
 
   useEffect(() => {
     updatePaletteFavicon(colors);
   }, [colors]);
 
+  // A pin made on a swatch takes the swatch's id, which the rebuilt palette
+  // uses to keep the pin on that swatch and not on another of the same color.
   const toggleLock = useCallback(
-    (color: RGB) => {
+    (id: string, color: RGB) => {
       if (busy || !source) return;
-      setLocked((prev) => toggleLocked(prev, color));
+      setLocks((prev) => toggleLocked(prev, id, color));
     },
     [busy, source],
   );
@@ -186,22 +207,27 @@ export function usePalette({
       if (locked.some((c) => rgbToHex(c) === hex)) return "already";
       if (locked.length >= MAX_COLORS) return "full";
       if (locked.length >= count) setCount(locked.length + 1);
-      setLocked([...locked, color]);
+      setLocks([...locks, { id: newPinId(), color }]);
       return "pinned";
     },
-    [busy, source, locked, count],
+    [busy, source, locks, locked, count],
   );
 
   const bumpMinCount = useCallback(() => setCount((v) => Math.max(4, v)), []);
 
   const loadShared = useCallback((colors: RGB[]) => {
+    const pins = locksFor(colors);
     setDetail({
-      colors: colors.map((color) => ({ color, population: 1 })),
+      colors: pins.map(({ id, color }) => ({
+        color,
+        population: 1,
+        lockId: id,
+      })),
       pixels: [],
       steps: [],
       samples: null,
     });
-    setLocked(colors);
+    setLocks(pins);
     setCount(colors.length);
     setExtracting(false);
     setColorSpace("rgb");
@@ -228,10 +254,7 @@ export function usePalette({
           const shown = prev.colors.slice(locked.length);
           if (prev.samples === null && steady(shown)) return prev;
           return {
-            colors: [
-              ...locked.map((color) => ({ color, population: 0 })),
-              ...unlocked,
-            ],
+            colors: [...pinned(locks), ...unlocked],
             pixels: [],
             steps: [],
             samples: null,
@@ -241,14 +264,15 @@ export function usePalette({
         setExtracting(false);
       });
     },
-    [count, locked, colorSpace],
+    [count, locks, locked, colorSpace],
   );
 
   return {
     detail,
     applyLive,
     locked,
-    setLocked,
+    locks,
+    setLocks,
     count,
     setCount,
     sort,
@@ -257,7 +281,6 @@ export function usePalette({
     sorted,
     colors,
     total,
-    lockedSet,
     toggleLock,
     pinColor,
     bumpMinCount,

@@ -1,12 +1,27 @@
-import { type RGB, rgbToHex } from "./color";
+import type { RGB } from "./color";
+
+/** A pinned swatch: the color it keeps and the swatch that keeps it. */
+export interface Lock {
+  id: string;
+  color: RGB;
+}
 
 /**
- * Pins a color that is not pinned, or lets go of one copy of a pinned color.
- * A palette can hold the same color twice, and unpinning one swatch must not
- * unpin the other.
+ * Pins a swatch that is not pinned, or lets go of one that is. A palette can
+ * hold the same color twice, so a pin follows the swatch's id: unpinning one
+ * copy must free that swatch and leave the other pinned.
  */
-export function toggleLocked(locked: RGB[], color: RGB): RGB[] {
-  const hex = rgbToHex(color);
-  const at = locked.findIndex((c) => rgbToHex(c) === hex);
-  return at < 0 ? [...locked, color] : locked.filter((_, i) => i !== at);
+export function toggleLocked(locks: Lock[], id: string, color: RGB): Lock[] {
+  return locks.some((lock) => lock.id === id)
+    ? locks.filter((lock) => lock.id !== id)
+    : [...locks, { id, color }];
 }
+
+let pins = 0;
+
+/** An id for a pinned swatch that has no swatch on screen yet. */
+export const newPinId = () => `pin-${++pins}`;
+
+/** Pins every color, each as its own swatch. */
+export const locksFor = (colors: RGB[]): Lock[] =>
+  colors.map((color) => ({ id: newPinId(), color }));

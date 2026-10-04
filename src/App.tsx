@@ -191,7 +191,6 @@ export default function App() {
     sorted,
     colors: extractedColors,
     total,
-    lockedSet,
     count,
     locked,
     sort,
@@ -209,7 +208,7 @@ export default function App() {
   // Swatch identities come from the extracted colors, so an edit never moves
   // one swatch's identity onto another. Everything below that shows or
   // exports the palette reads the edited colors.
-  const identity = usePresentation(sorted, loaded, lockedSet);
+  const identity = usePresentation(sorted, loaded);
   const swatchIds = useMemo(
     () => identity.swatches.map((swatch) => swatch.id),
     [identity],
@@ -343,10 +342,15 @@ export default function App() {
     );
   };
   // A pin belongs to the swatch's extracted color, which stays put when the
-  // swatch is edited.
+  // swatch is edited, and to the swatch itself, so a repeated color unpins
+  // only the copy that was clicked.
   const toggleLock = (id: string) => {
     const slot = slotOf(id);
-    if (slot >= 0) palette.toggleLock(extractedColors[slot]);
+    if (slot >= 0)
+      palette.toggleLock(
+        presentation.swatches[slot].lockId ?? id,
+        extractedColors[slot],
+      );
   };
 
   const panelShown = !phone || toolSheetOpen;
@@ -794,7 +798,6 @@ export default function App() {
                   valueKind={valueKind}
                   total={total}
                   showWeights={showWeights}
-                  lockedSet={lockedSet}
                   canLock={!!source}
                   changedHexes={changedHexes}
                   copied={copied}
@@ -863,7 +866,7 @@ export default function App() {
               {locked.length > 0 && source && (
                 <button
                   className="text-button"
-                  onClick={() => palette.setLocked([])}
+                  onClick={() => palette.setLocks([])}
                   disabled={busy}
                 >
                   Unlock all
