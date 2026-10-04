@@ -33,11 +33,19 @@ const meanDiff = (page: Page, a: Buffer, b: Buffer) =>
     [a.toString("base64"), b.toString("base64")],
   );
 
-/** Pixels of the photo with no hover or focus ring from the controls on it. */
+/** Pixels of the photo alone, from the top of the page. The labels and
+    controls laid over it are hidden: their text antialiasing changes with
+    how the page is composited (the photo column sticks while scrolled), which
+    has nothing to do with the simulation. */
 const photoPixels = async (page: Page) => {
   await page.mouse.move(0, 0);
-  await page.evaluate(() => (document.activeElement as HTMLElement).blur());
-  return photo(page).screenshot();
+  await page.evaluate(() => {
+    (document.activeElement as HTMLElement).blur();
+    scrollTo(0, 0);
+  });
+  return photo(page).screenshot({
+    style: ".source-frame > :not(img) { visibility: hidden !important; }",
+  });
 };
 
 const axeViolations = async (page: Page) =>

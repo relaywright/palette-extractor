@@ -58,10 +58,11 @@ test.describe("phone", () => {
       });
     // Nothing is stranded beneath the panel: the page's last line scrolls
     // clear of it.
-    await page.evaluate(() => scrollTo(0, document.body.scrollHeight));
+    // Scrolled again on each try, in case the page grows after the jump.
     await expect
       .poll(() =>
         page.evaluate(() => {
+          scrollTo(0, document.documentElement.scrollHeight);
           const panel = document.querySelector(".adjust-panel")!;
           const last = document.querySelector(".site-footer")!;
           return (
