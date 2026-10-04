@@ -163,6 +163,11 @@
       "alpha": 1
     },
     {
+      "element": "div.workspace > section.palette-panel > button.text-button",
+      "color": "rgb(228, 195, 151)",
+      "alpha": 1
+    },
+    {
       "element": "section.intro > div.capture-actions > button.button",
       "color": "rgb(228, 195, 151)",
       "alpha": 1
