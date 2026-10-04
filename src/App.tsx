@@ -899,9 +899,10 @@ export default function App() {
                 colors.length < count &&
                 "This image has fewer distinct colors than requested."}
             </p>
-            {loaded && (
+            {source && (
               <button
                 className="text-button"
+                disabled={!loaded}
                 aria-expanded={compareOpen}
                 aria-controls="space-compare"
                 onClick={() => setCompareOpen(!compareOpen)}
