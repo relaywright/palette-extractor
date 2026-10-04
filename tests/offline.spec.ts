@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import {
   cpSync,
@@ -618,6 +619,117 @@ test.describe("across two different deploys", () => {
     await expect(
       page.getByRole("link", { name: /palette tool/ }),
     ).toBeVisible();
+  });
+});
+
+test.describe("when the worker is turned off with a new deploy", () => {
+  const types: Record<string, string> = {
+    ".html": "text/html",
+    ".js": "text/javascript",
+    ".css": "text/css",
+    ".webp": "image/webp",
+    ".png": "image/png",
+    ".woff2": "font/woff2",
+    ".webmanifest": "application/manifest+json",
+  };
+  const dirs: Record<string, string> = {};
+  let server: Server;
+  let origin = "";
+  let current = "on";
+
+  test.beforeAll(async () => {
+    dirs.on = resolve("dist");
+    // A real build with the switch set, as the host would make it.
+    dirs.off = mkdtempSync(join(tmpdir(), "deploy-off-"));
+    execFileSync(
+      process.execPath,
+      [
+        resolve("node_modules/vite/bin/vite.js"),
+        "build",
+        "--outDir",
+        dirs.off,
+        "--emptyOutDir",
+      ],
+      { env: { ...process.env, SW_OFF: "1" }, stdio: "pipe" },
+    );
+    server = createServer((req, res) => {
+      const path = new URL(req.url!, "http://x").pathname;
+      const file = join(
+        dirs[current],
+        path === "/" ? "index.html" : path.replaceAll("..", ""),
+      );
+      if (!statSync(file, { throwIfNoEntry: false })?.isFile()) {
+        res.writeHead(404).end();
+        return;
+      }
+      res.writeHead(200, {
+        "Content-Type": types[extname(file)] ?? "application/octet-stream",
+        "Cache-Control": path === "/sw.js" ? "no-cache" : "max-age=3600",
+      });
+      res.end(readFileSync(file));
+    });
+    await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+    const address = server.address();
+    origin = `http://127.0.0.1:${typeof address === "object" ? address!.port : 0}`;
+  });
+  test.afterAll(async () => {
+    await new Promise((done) => server.close(done));
+    rmSync(dirs.off, { recursive: true, force: true });
+  });
+
+  test("an earlier visitor ends up with no worker and no saved copy", async ({
+    page,
+  }) => {
+    test.setTimeout(60000);
+    current = "on";
+    await page.goto(origin);
+    await ready(page);
+    await worker(page);
+    await page.reload();
+    await ready(page);
+    const before = await page.evaluate(async () => ({
+      registrations: (await navigator.serviceWorker.getRegistrations()).length,
+      controlled: !!navigator.serviceWorker.controller,
+      caches: (await caches.keys()).filter((name) =>
+        /^palette-(shell-|shared-image$)/.test(name),
+      ).length,
+    }));
+    expect(before.registrations).toBe(1);
+    expect(before.controlled).toBe(true);
+    expect(before.caches).toBeGreaterThan(0);
+
+    current = "off";
+    // A fresh visit, as any later one is.
+    await page.goto("about:blank");
+    await page.goto(origin);
+    // The page and the retiring worker may each reload it once.
+    await expect
+      .poll(
+        () =>
+          page
+            .evaluate(async () => ({
+              registrations: (await navigator.serviceWorker.getRegistrations())
+                .length,
+              caches: (await caches.keys()).filter((name) =>
+                /^palette-(shell-|shared-image$)/.test(name),
+              ),
+            }))
+            .catch(() => null),
+        { timeout: 15000 },
+      )
+      .toEqual({ registrations: 0, caches: [] });
+    // Past the delay the normal build registers after, and any reload.
+    await page.waitForTimeout(5000);
+    await page.goto(origin);
+    await ready(page);
+    expect(
+      await page.evaluate(async () => ({
+        registrations: (await navigator.serviceWorker.getRegistrations())
+          .length,
+        controlled: !!navigator.serviceWorker.controller,
+      })),
+    ).toEqual({ registrations: 0, controlled: false });
+    await expect(page.locator(".swatch")).toHaveCount(6);
   });
 });
 

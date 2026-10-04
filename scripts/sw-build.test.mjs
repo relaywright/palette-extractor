@@ -2,7 +2,12 @@ import { describe, expect, it } from "vitest";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { buildServiceWorker, listFiles } from "./sw-build.mjs";
+import {
+  buildRetireWorker,
+  buildServiceWorker,
+  listFiles,
+  writeServiceWorker,
+} from "./sw-build.mjs";
 
 const template = readFileSync(
   new URL("../public/sw.js", import.meta.url),
@@ -109,5 +114,29 @@ describe("buildServiceWorker", () => {
         template.replace('const REVISION = "development";', ""),
       ),
     ).toThrow(/REVISION/);
+  });
+});
+
+describe("the SW_OFF worker", () => {
+  const retire = buildRetireWorker();
+
+  it("unregisters itself, clears the app's caches and answers no request", () => {
+    expect(retire).toContain("registration.unregister()");
+    expect(retire).toContain("palette-shell-");
+    expect(retire).toContain("palette-shared-image");
+    expect(retire).toContain("skipWaiting");
+    expect(retire).toContain("navigate(");
+    expect(retire).not.toMatch(/addEventListener\(\s*["']fetch["']/);
+  });
+
+  it("takes the place of sw.js in a finished build", () => {
+    const dir = makeDist({ ...site, "sw.js": "unfilled" });
+    expect(writeServiceWorker(dir, "unused", { off: true })).toBeNull();
+    expect(readFileSync(join(dir, "sw.js"), "utf8")).toBe(retire);
+  });
+
+  it("leaves the normal worker without a retire path", () => {
+    const { source } = buildServiceWorker(makeDist(site), template);
+    expect(source).not.toContain("registration.unregister");
   });
 });

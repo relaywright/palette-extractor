@@ -5,8 +5,15 @@ export function buildServiceWorker(
   outDir: string,
   template: string,
 ): { source: string; revision: string; pages: string[]; files: string[] };
+export function buildRetireWorker(): string;
 export function writeServiceWorker(
   outDir: string,
   templatePath: string,
-): { source: string; revision: string; pages: string[]; files: string[] };
-export function serviceWorkerPlugin(): Plugin;
+  options?: { off?: boolean },
+): {
+  source: string;
+  revision: string;
+  pages: string[];
+  files: string[];
+} | null;
+export function serviceWorkerPlugin(options?: { off?: boolean }): Plugin;

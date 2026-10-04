@@ -4,7 +4,10 @@
 // files that deploy uses.
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { join, posix } from "node:path";
+import { join, posix, resolve } from "node:path";
+
+// The worker that retires the offline worker instead of replacing it.
+const RETIRE_TEMPLATE = new URL("./sw-retire.js", import.meta.url);
 
 // The pages that work offline, and the file each one is built from.
 const PAGE_FILES = { "/": "index.html", "/how.html": "how.html" };
@@ -79,24 +82,46 @@ export function buildServiceWorker(outDir, template) {
   return { source, revision, pages, files };
 }
 
-/** Writes `sw.js` into a finished build, replacing the unfilled copy. */
-export function writeServiceWorker(outDir, templatePath) {
+/** The worker a SW_OFF build ships: it removes the offline worker. */
+export function buildRetireWorker() {
+  return readFileSync(RETIRE_TEMPLATE, "utf8");
+}
+
+/**
+ * Writes `sw.js` into a finished build, replacing the unfilled copy. With
+ * `off`, it writes the worker that retires the offline worker instead.
+ */
+export function writeServiceWorker(outDir, templatePath, { off = false } = {}) {
+  if (off) {
+    writeFileSync(join(outDir, "sw.js"), buildRetireWorker());
+    return null;
+  }
   const built = buildServiceWorker(outDir, readFileSync(templatePath, "utf8"));
   writeFileSync(join(outDir, "sw.js"), built.source);
   return built;
 }
 
-export function serviceWorkerPlugin() {
+// SW_OFF=1 is the owner's off switch: a bad worker is removed from every
+// browser by deploying a build made with it set.
+export function serviceWorkerPlugin({ off = process.env.SW_OFF === "1" } = {}) {
   let config;
   return {
     name: "service-worker",
     apply: "build",
+    // The page reads this to retire a worker instead of registering one.
+    config() {
+      return {
+        define: {
+          "import.meta.env.VITE_SW_OFF": JSON.stringify(off ? "1" : ""),
+        },
+      };
+    },
     configResolved(resolved) {
       config = resolved;
     },
     writeBundle() {
-      const outDir = join(config.root, config.build.outDir);
-      writeServiceWorker(outDir, join(config.publicDir, "sw.js"));
+      const outDir = resolve(config.root, config.build.outDir);
+      writeServiceWorker(outDir, join(config.publicDir, "sw.js"), { off });
     },
   };
 }
