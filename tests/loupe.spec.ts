@@ -183,6 +183,29 @@ async function nudge(page: Page, index: number, key: string, times = 3) {
   }
 }
 
+/** Each swatch on screen, in order: its hex, whether it is pinned, whether it is marked edited. */
+const swatchStates = (page: Page) =>
+  page.locator(".swatch").evaluateAll((swatches) =>
+    swatches.map((swatch) => ({
+      hex: swatch
+        .querySelector(".swatch-info code")!
+        .textContent!.toLowerCase(),
+      locked: !!swatch.querySelector(".lock-button.is-locked"),
+      edited: !!swatch.querySelector(".edit-marker"),
+    })),
+  );
+
+const settleFrames = (page: Page) =>
+  page.evaluate(
+    () =>
+      new Promise<void>((done) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => done())),
+      ),
+  );
+
+const channels = (hex: string) =>
+  [1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16));
+
 const inside = (
   inner: { x: number; y: number; width: number; height: number },
   outer: { x: number; y: number; width: number; height: number },
@@ -227,11 +250,53 @@ test("pinning a color keeps the edits on the swatches that stay", async ({
   const edited = (await hexes(page))[3];
   await expect(page.locator(".edit-marker")).toHaveCount(1);
 
+  await layer(page).hover({ position: { x: 210, y: 90 } });
+  const pinnedHex = (await loupeHex(page).innerText()).toLowerCase();
   await layer(page).click({ position: { x: 210, y: 90 } });
   await expect(lockedCount(page)).toHaveCount(1);
   await ready(page);
   await expect(page.locator(".edit-marker")).toHaveCount(1);
   expect(await hexes(page)).toContain(edited);
+  // The marker and the edited color stay together, and off the new pin.
+  const after = await swatchStates(page);
+  expect(after.find((swatch) => swatch.locked)).toEqual({
+    hex: pinnedHex,
+    locked: true,
+    edited: false,
+  });
+  expect(after.find((swatch) => swatch.edited)?.hex).toBe(edited);
+});
+
+test("a pin taken from an edited swatch's own region lands on the pin, not on that edit", async ({
+  page,
+}) => {
+  await open(page, "gradient.svg", GRADIENT);
+  const extracted = (await hexes(page))[3];
+  await nudge(page, 3, "Shift+ArrowRight");
+  const edited = (await hexes(page))[3];
+  // The photo pixel closest to the swatch's extracted color.
+  const frame = (await layer(page).boundingBox())!;
+  let nearest = { hex: "", x: 0, distance: Infinity };
+  for (let step = 1; step < 20; step++) {
+    const x = (frame.width * step) / 20;
+    await layer(page).hover({ position: { x, y: 90 } });
+    await settleFrames(page);
+    const hex = (await loupeHex(page).innerText()).toLowerCase();
+    const distance = Math.hypot(
+      ...channels(hex).map((v, i) => v - channels(extracted)[i]),
+    );
+    if (distance < nearest.distance) nearest = { hex, x, distance };
+  }
+  await layer(page).click({ position: { x: nearest.x, y: 90 } });
+  await expect(lockedCount(page)).toHaveCount(1);
+  await ready(page);
+  const after = await swatchStates(page);
+  const pin = after.find((swatch) => swatch.locked)!;
+  expect(pin.hex).toBe(nearest.hex);
+  expect(pin.edited).toBe(false);
+  // Whatever edit survives is still on a swatch showing it.
+  for (const swatch of after.filter((entry) => entry.edited))
+    expect(swatch.hex).toBe(edited);
 });
 
 test("a color space change still starts the edits over", async ({ page }) => {

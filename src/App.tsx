@@ -214,7 +214,16 @@ export default function App() {
     () => identity.swatches.map((swatch) => swatch.id),
     [identity],
   );
-  const edits = usePaletteEdits(extractedColors, swatchIds, loaded?.src ?? "");
+  const swatchPins = useMemo(
+    () => identity.swatches.map((swatch) => swatch.lockId),
+    [identity],
+  );
+  const edits = usePaletteEdits(
+    extractedColors,
+    swatchIds,
+    loaded?.src ?? "",
+    swatchPins,
+  );
   const colors = edits.colors;
   const shownSorted = useMemo(
     () =>

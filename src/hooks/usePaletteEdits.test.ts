@@ -7,6 +7,7 @@ import {
   editsReducer,
   emptyEdits,
   paletteSignature,
+  type Retargeted,
 } from "./usePaletteEdits";
 
 const extracted: RGB[] = [
@@ -139,23 +140,38 @@ describe("palette edits", () => {
   describe("across a pin", () => {
     const photo = "photo.jpg";
     const next = paletteSignature(extracted.slice(1), photo);
+    // What a pin records: the swatches' extracted colors, and the pins that
+    // were already there.
+    const pin = (state: EditState, pins: string[] = []) =>
+      editsReducer(state, {
+        type: "pin",
+        photo,
+        extracted: Object.fromEntries(ids.map((id, i) => [id, extracted[i]])),
+        pins,
+      });
     const retarget = (
       state: EditState,
       signature: string,
-      swatchIds: string[],
+      swatches: Retargeted[],
       forPhoto = photo,
     ) =>
       editsReducer(state, {
         type: "retarget",
         signature,
         photo: forPhoto,
-        ids: swatchIds,
+        swatches,
       });
+    const pinned: RGB = { r: 40, g: 200, b: 120 };
+    // The first swatch is gone; a new pin takes the fourth swatch's place.
+    const afterPin: Retargeted[] = [
+      { id: "swatch-2", extracted: extracted[1] },
+      { id: "swatch-4", extracted: pinned, pin: "pin-1" },
+    ];
 
     it("keeps the edits of the swatches that are still there", () => {
       let state = edit(edit(emptyEdits(signature), 0, 0.3), 1, 0.8);
-      state = editsReducer(state, { type: "pin", photo });
-      const after = retarget(state, next, ["swatch-2", "swatch-4"]);
+      state = pin(state);
+      const after = retarget(state, next, afterPin);
       expect(Object.keys(after.edits)).toEqual(["swatch-2"]);
       expect(after.edits["swatch-2"]).toBe(state.edits["swatch-2"]);
       expect(after.signature).toBe(next);
@@ -165,18 +181,18 @@ describe("palette edits", () => {
 
     it("drops them without a pin", () => {
       const state = edit(emptyEdits(signature), 1, 0.8);
-      const after = retarget(state, next, ["swatch-2", "swatch-4"]);
+      const after = retarget(state, next, afterPin);
       expect(after.edits).toEqual({});
       expect(after.touched).toBe(false);
     });
 
     it("drops them when the photo changed after the pin", () => {
       let state = edit(emptyEdits(signature), 1, 0.8);
-      state = editsReducer(state, { type: "pin", photo });
+      state = pin(state);
       const after = retarget(
         state,
         paletteSignature(extracted, "other.jpg"),
-        ids,
+        ids.map((id, i) => ({ id, extracted: extracted[i] })),
         "other.jpg",
       );
       expect(after.edits).toEqual({});
@@ -184,9 +200,57 @@ describe("palette edits", () => {
 
     it("carries once: a pin that changed nothing does not leak into later changes", () => {
       let state = edit(emptyEdits(signature), 1, 0.8);
-      state = editsReducer(state, { type: "pin", photo });
+      state = pin(state);
       state = editsReducer(state, { type: "settle" });
-      expect(retarget(state, next, ids).edits).toEqual({});
+      expect(
+        retarget(
+          state,
+          next,
+          ids.map((id, i) => ({ id, extracted: extracted[i] })),
+        ).edits,
+      ).toEqual({});
+    });
+
+    it("never gives an edit to the swatch that holds the new pin, even when the pin is next to the edited color", () => {
+      let state = edit(emptyEdits(signature), 0, 0.3);
+      state = pin(state);
+      // The pin was taken beside swatch-1's color and the pairing handed it
+      // swatch-1's ID.
+      const after = retarget(state, next, [
+        { id: "swatch-1", extracted: { r: 201, g: 60, b: 60 }, pin: "pin-1" },
+        { id: "swatch-2", extracted: extracted[1] },
+      ]);
+      expect(after.edits).toEqual({});
+    });
+
+    it("keeps the edit of a swatch whose color only shifted a little", () => {
+      let state = edit(emptyEdits(signature), 1, 0.8);
+      state = pin(state);
+      const after = retarget(state, next, [
+        { id: "swatch-2", extracted: { r: 52, g: 128, b: 196 } },
+        { id: "swatch-4", extracted: pinned, pin: "pin-1" },
+      ]);
+      expect(Object.keys(after.edits)).toEqual(["swatch-2"]);
+    });
+
+    it("drops an edit whose swatch was handed a different color", () => {
+      let state = edit(emptyEdits(signature), 0, 0.3);
+      state = pin(state);
+      const after = retarget(state, next, [
+        { id: "swatch-1", extracted: extracted[2] },
+        { id: "swatch-2", extracted: extracted[1] },
+      ]);
+      expect(after.edits).toEqual({});
+    });
+
+    it("keeps the edit of a swatch that was already pinned", () => {
+      let state = edit(emptyEdits(signature), 0, 0.3);
+      state = pin(state, ["pin-0"]);
+      const after = retarget(state, next, [
+        { id: "swatch-1", extracted: extracted[0], pin: "pin-0" },
+        { id: "swatch-4", extracted: pinned, pin: "pin-1" },
+      ]);
+      expect(Object.keys(after.edits)).toEqual(["swatch-1"]);
     });
   });
 });
