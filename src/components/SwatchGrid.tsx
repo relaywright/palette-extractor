@@ -16,6 +16,7 @@ import {
   settledAt,
   type ColorTimeline,
 } from "../lib/morph";
+import { pinOn, type Lock } from "../lib/locks";
 import { paletteColorNames } from "../lib/names";
 import { fillSlots, holdSlots } from "../stage/handoff";
 import { Swatch, type ValueKind } from "./Swatch";
@@ -48,17 +49,22 @@ const empty: Presentation = { swatches: [], finalColors: false, photo: 0 };
  * a render React throws away never leaves a half-applied match behind. Give
  * it the extracted colors, not the edited ones: an edit that makes a color
  * equal its neighbor's must not trade their IDs.
+ *
+ * Which swatches show as pinned is read from `locks` on every render, not
+ * from the palette: a palette that failed to refresh, or a camera frame that
+ * was dropped as unchanged, still shows the pins the user has set since.
  */
 export function usePresentation(
   sorted: PaletteEntry[],
   loaded: object | null,
+  locks: Lock[],
 ): Presentation {
   const committed = useRef({
     presentation: empty,
     loaded: null as object | null,
   });
   const lastId = useRef(0);
-  const presentation = useMemo(() => {
+  const planned = useMemo(() => {
     const previous = committed.current;
     // Displayed colors live in the grid's animation loop; matching only
     // needs targets, and the grid melts from whatever is on screen.
@@ -90,6 +96,16 @@ export function usePresentation(
       photo: previous.presentation.photo + (finalColors ? 1 : 0),
     };
   }, [sorted, loaded]);
+  const presentation = useMemo(
+    () => ({
+      ...planned,
+      swatches: planned.swatches.map((swatch) => ({
+        ...swatch,
+        lockId: pinOn(locks, swatch),
+      })),
+    }),
+    [planned, locks],
+  );
   useLayoutEffect(() => {
     committed.current = { presentation, loaded };
   }, [presentation, loaded]);

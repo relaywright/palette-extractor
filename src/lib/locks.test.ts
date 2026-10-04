@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RGB } from "./color";
-import { locksFor, newPinId, toggleLocked } from "./locks";
+import { locksFor, newPinId, pinOn, toggleLocked } from "./locks";
 
 const red: RGB = { r: 238, g: 85, b: 51 };
 const blue: RGB = { r: 51, g: 102, b: 153 };
@@ -42,5 +42,30 @@ describe("locksFor", () => {
 describe("newPinId", () => {
   it("never repeats", () => {
     expect(newPinId()).not.toBe(newPinId());
+  });
+});
+
+describe("pinOn", () => {
+  const locks = [{ id: "pin-1", color: red }];
+  it("finds the pin a swatch carries", () => {
+    expect(pinOn(locks, { id: "swatch-4", lockId: "pin-1" })).toBe("pin-1");
+  });
+  it("finds a pin made on the swatch itself", () => {
+    expect(pinOn([{ id: "swatch-4", color: red }], { id: "swatch-4" })).toBe(
+      "swatch-4",
+    );
+  });
+  it("shows no pin once the lock is gone, whatever the palette says", () => {
+    expect(pinOn([], { id: "swatch-4", lockId: "pin-1" })).toBeUndefined();
+    expect(pinOn([], { id: "swatch-4" })).toBeUndefined();
+  });
+  it("keeps two copies of one color apart", () => {
+    const both = [
+      { id: "a", color: red },
+      { id: "b", color: { ...red } },
+    ];
+    const unpinned = both.slice(1);
+    expect(pinOn(unpinned, { id: "x", lockId: "a" })).toBeUndefined();
+    expect(pinOn(unpinned, { id: "y", lockId: "b" })).toBe("b");
   });
 });
