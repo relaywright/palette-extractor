@@ -8,7 +8,13 @@ import {
 } from "react";
 import { type RGB, type SortMode, rgbToHex, sortPalette } from "../lib/color";
 import { extractPaletteDetailed, type ExtractionDetail } from "../lib/extract";
-import { type Lock, locksFor, newPinId, toggleLocked } from "../lib/locks";
+import {
+  type Lock,
+  locksFor,
+  newPinId,
+  showsPins,
+  toggleLocked,
+} from "../lib/locks";
 import { SAME_COLOR_DISTANCE } from "../lib/compare";
 import { withoutBoxes } from "../lib/stageGroups";
 import { updatePaletteFavicon } from "../lib/favicon";
@@ -252,7 +258,13 @@ export function usePalette({
       startTransition(() => {
         setDetail((prev) => {
           const shown = prev.colors.slice(locked.length);
-          if (prev.samples === null && steady(shown)) return prev;
+          // A pin made or released since the last frame is not a steady frame.
+          if (
+            prev.samples === null &&
+            showsPins(prev.colors, locks) &&
+            steady(shown)
+          )
+            return prev;
           return {
             colors: [...pinned(locks), ...unlocked],
             pixels: [],

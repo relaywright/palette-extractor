@@ -36,3 +36,15 @@ export const pinOn = (
   swatch: { id: string; lockId?: string },
 ): string | undefined =>
   locks.find((lock) => lock.id === swatch.lockId || lock.id === swatch.id)?.id;
+
+/**
+ * Whether a palette already marks exactly these pins: the pinned colors first,
+ * in lock order, each naming its lock, and no other color marked.
+ */
+export const showsPins = (entries: { lockId?: string }[], locks: Lock[]) =>
+  entries.length >= locks.length &&
+  entries.every((entry, i) =>
+    i < locks.length
+      ? entry.lockId === locks[i].id
+      : entry.lockId === undefined,
+  );

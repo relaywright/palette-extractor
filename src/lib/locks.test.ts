@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RGB } from "./color";
-import { locksFor, newPinId, pinOn, toggleLocked } from "./locks";
+import { locksFor, newPinId, pinOn, showsPins, toggleLocked } from "./locks";
 
 const red: RGB = { r: 238, g: 85, b: 51 };
 const blue: RGB = { r: 51, g: 102, b: 153 };
@@ -67,5 +67,31 @@ describe("pinOn", () => {
     const unpinned = both.slice(1);
     expect(pinOn(unpinned, { id: "x", lockId: "a" })).toBeUndefined();
     expect(pinOn(unpinned, { id: "y", lockId: "b" })).toBe("b");
+  });
+});
+
+describe("showsPins", () => {
+  const locks = [
+    { id: "a", color: red },
+    { id: "b", color: blue },
+  ];
+  it("accepts a palette that marks exactly the pins, in order", () => {
+    expect(showsPins([{ lockId: "a" }, { lockId: "b" }, {}, {}], locks)).toBe(
+      true,
+    );
+    expect(showsPins([{}, {}], [])).toBe(true);
+  });
+  it("rejects a pin the palette has not marked yet", () => {
+    expect(showsPins([{}, {}, {}], locks)).toBe(false);
+    expect(showsPins([{ lockId: "a" }, {}, {}], locks)).toBe(false);
+  });
+  it("rejects a mark for a pin that was released", () => {
+    expect(showsPins([{ lockId: "a" }, {}, {}], [])).toBe(false);
+    expect(showsPins([{ lockId: "a" }, { lockId: "b" }], locks.slice(1))).toBe(
+      false,
+    );
+  });
+  it("rejects a palette shorter than its pins", () => {
+    expect(showsPins([], locks)).toBe(false);
   });
 });
