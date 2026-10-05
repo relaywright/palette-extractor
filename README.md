@@ -3,6 +3,8 @@
 [![CI](https://github.com/relaywright/palette-extractor/actions/workflows/ci.yml/badge.svg)](https://github.com/relaywright/palette-extractor/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
+https://github.com/user-attachments/assets/e421c9d9-d5d4-40bf-9574-da099b6fcba7
+
 **Color, pulled into focus.** A private color studio that takes an image from inspiration to usable design values. Upload a photo, explore its palette, see it applied to an identity, and take the colors straight into your next project.
 
 [Open the live app](https://palette-extractor.relaywright.workers.dev/)
